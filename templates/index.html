@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>单细胞 ANN 检索系统</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+    <!-- 导航栏 -->
+    <nav class="navbar">
+        <div class="nav-container">
+            <a class="nav-brand" href="#">
+                <i class="fas fa-dna"></i>
+                <span>单细胞 ANN 检索系统</span>
+            </a>
+            <div class="nav-links">
+                <a href="#search" class="nav-link active"><i class="fas fa-search"></i> 检索</a>
+                <a href="#visualization" class="nav-link"><i class="fas fa-chart-bar"></i> 可视化</a>
+                <a href="#status" class="nav-link"><i class="fas fa-info-circle"></i> 索引状态</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container">
+        <!-- 项目头部 -->
+        <header class="hero">
+            <h1><i class="fas fa-dna"></i> 单细胞 ANN 检索系统</h1>
+            <p>基于近似最近邻检索的大规模单细胞数据相似细胞搜索平台</p>
+            <div class="status-badges">
+                <span class="badge badge-primary" id="badge-cells"><i class="fas fa-hashtag"></i> 加载中...</span>
+                <span class="badge badge-success" id="badge-dim"><i class="fas fa-vector-square"></i> 加载中...</span>
+                <span class="badge badge-info" id="badge-status"><i class="fas fa-circle"></i> 加载中...</span>
+            </div>
+        </header>
+
+        <!-- 搜索区域 -->
+        <section id="search" class="card">
+            <div class="card-header">
+                <i class="fas fa-search"></i>
+                <h2>相似细胞检索</h2>
+            </div>
+            <div class="card-body">
+                <form id="search-form" class="search-form">
+                    <div class="form-row">
+                        <div class="form-group flex-grow">
+                            <label for="cell-id-input">
+                                <i class="fas fa-tag"></i> 细胞 ID
+                            </label>
+                            <input type="text" id="cell-id-input" class="form-control"
+                                   placeholder="例如: AAACCTGAGCAGGTCA-1_2"
+                                   value="AAACCTGAGCAGGTCA-1_2">
+                        </div>
+                        <div class="form-group" style="width:120px;">
+                            <label for="k-input"><i class="fas fa-list-ol"></i> Top-K</label>
+                            <input type="number" id="k-input" class="form-control" value="10" min="1" max="100">
+                        </div>
+                        <div class="form-group" style="width:200px;">
+                            <label for="filter-cell-type"><i class="fas fa-filter"></i> 细胞类型</label>
+                            <select id="filter-cell-type" class="form-control">
+                                <option value="">全部类型</option>
+                            </select>
+                        </div>
+                        <div class="form-group form-group-btn">
+                            <label>&nbsp;</label>
+                            <button type="submit" class="btn btn-primary" id="search-btn">
+                                <i class="fas fa-search"></i> 检索
+                            </button>
+                        </div>
+                    </div>
+                </form>
+
+                <!-- 加载动画 -->
+                <div id="loading" class="loading" style="display:none;">
+                    <div class="spinner"></div>
+                    <p>正在检索相似细胞...</p>
+                </div>
+
+                <!-- 查询信息 -->
+                <div id="query-info" class="query-info" style="display:none;">
+                    <i class="fas fa-clock"></i>
+                    <span id="query-time">0</span> ms
+                    &nbsp;&nbsp;|&nbsp;&nbsp;
+                    <i class="fas fa-database"></i>
+                    <span id="query-count">0</span> 个结果
+                    &nbsp;&nbsp;|&nbsp;&nbsp;
+                    <i class="fas fa-tag"></i>
+                    查询细胞: <code id="query-cell-id"></code>
+                </div>
+
+                <!-- 结果表格 -->
+                <div id="results-container" style="display:none;">
+                    <h3><i class="fas fa-table"></i> 检索结果</h3>
+                    <div class="table-wrapper">
+                        <table class="table" id="results-table">
+                            <thead>
+                                <tr>
+                                    <th>排名</th>
+                                    <th>细胞 ID</th>
+                                    <th>细胞类型</th>
+                                    <th>距离</th>
+                                    <th>疾病状态</th>
+                                    <th>供体年龄</th>
+                                    <th>性别</th>
+                                    <th>nCount_RNA</th>
+                                    <th>nFeature_RNA</th>
+                                    <th>percent.mt</th>
+                                </tr>
+                            </thead>
+                            <tbody id="results-body">
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- 错误提示 -->
+                <div id="error-msg" class="alert alert-error" style="display:none;">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <span id="error-text"></span>
+                </div>
+            </div>
+        </section>
+
+        <!-- 可视化区域 -->
+        <section id="visualization" class="card">
+            <div class="card-header">
+                <i class="fas fa-chart-bar"></i>
+                <h2>数据可视化</h2>
+            </div>
+            <div class="card-body">
+                <div class="chart-grid">
+                    <div class="chart-box">
+                        <h3><i class="fas fa-chart-pie"></i> 细胞类型分布</h3>
+                        <div class="chart-wrapper">
+                            <canvas id="cell-type-chart"></canvas>
+                        </div>
+                    </div>
+                    <div class="chart-box">
+                        <h3><i class="fas fa-circle"></i> PCA 二维投影</h3>
+                        <div class="chart-wrapper">
+                            <canvas id="pca-scatter"></canvas>
+                        </div>
+                        <div class="chart-controls">
+                            <label for="cell-type-filter-viz">高亮细胞类型:</label>
+                            <select id="cell-type-filter-viz" class="form-control form-control-sm"></select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 索引状态 -->
+        <section id="status" class="card">
+            <div class="card-header">
+                <i class="fas fa-info-circle"></i>
+                <h2>索引状态</h2>
+            </div>
+            <div class="card-body">
+                <div id="index-status-loading">
+                    <p><i class="fas fa-spinner fa-pulse"></i> 加载索引信息...</p>
+                </div>
+                <div id="index-status-content" style="display:none;">
+                    <div class="stat-grid">
+                        <div class="stat-item">
+                            <div class="stat-value" id="stat-cell-count">-</div>
+                            <div class="stat-label">细胞总数</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value" id="stat-dimension">-</div>
+                            <div class="stat-label">向量维度</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value" id="stat-index-total">-</div>
+                            <div class="stat-label">索引向量数</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value" id="stat-index-type">FAISS</div>
+                            <div class="stat-label">索引类型</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <!-- 页脚 -->
+    <footer class="footer">
+        <div class="container">
+            <p>单细胞 ANN 检索系统 &copy; 2026 &mdash; 团队作业中期展示</p>
+        </div>
+    </footer>
+
+    <script src="/static/js/main.js"></script>
+</body>
+</html>
