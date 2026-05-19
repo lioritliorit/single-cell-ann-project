@@ -166,12 +166,102 @@ distances, indices = index_builder.search(query_vectors, k=10)
 
 ---
 
-## 总结
+## 5. 文件说明
+
+### 需要保留并上传到 GitHub 的文件
+
+| 文件 | 说明 |
+|------|------|
+| `README.MD` | 项目说明文档 |
+| `data_loader.py` | 数据读取模块代码 |
+| `vector_processor.py` | 向量化处理模块代码 |
+| `hnsw_index.py` | HNSW算法实现代码 |
+| `performance_evaluator.py` | 性能评测模块代码 |
+| `.gitignore` | Git忽略文件配置 |
+| `cell_metadata.csv` | 细胞元数据 |
+| `pca_vectors.npy` | PCA向量 |
+| `cleaned_cell_metadata.csv` | 清洗后的细胞元数据 |
+| `cleaned_pca_vectors.npy` | 清洗后的PCA向量 |
+| `faiss_index.bin` | FAISS索引文件 |
+| `hnsw_index.npz` | HNSW索引文件 |
+| `performance_report.md` | 性能评测报告 |
+| `cell_type_count.csv` | 细胞类型统计 |
+| `disease_count.csv` | 疾病状态统计 |
+| `age_group_count.csv` | 年龄分组统计 |
+
+### 不上传到 GitHub 的文件
+
+| 文件 | 说明 |
+|------|------|
+| `liver.h5ad` | 原始数据文件（太大） |
+| `*.h5ad` | 其他 h5ad 数据文件 |
+
+---
+
+## 6. HNSW算法实现（任务3）
+
+### 6.1 算法概述
+
+本项目实现了 **HNSW（Hierarchical Navigable Small Worlds）** 算法，这是一种基于图结构的近似最近邻搜索算法。
+
+### 6.2 核心参数
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `M` | 16 | 每层最大连接数 |
+| `M0` | 32 | 底层最大连接数（默认2*M） |
+| `efConstruction` | 400 | 构建时的搜索范围 |
+| `ef` | 300 | 查询时的搜索范围 |
+
+### 6.3 使用示例
+
+```python
+from hnsw_index import HNSWIndex
+import numpy as np
+
+# 加载向量数据
+vectors = np.load("cleaned_pca_vectors.npy")
+
+# 构建HNSW索引
+hnsw = HNSWIndex(M=16, efConstruction=400, ef=300)
+hnsw.build_index(vectors)
+
+# 执行搜索
+query = vectors[:5]  # 取前5个向量作为查询
+distances, indices = hnsw.search(query, k=10)
+
+# 保存/加载索引
+hnsw.save_index("hnsw_index.npz")
+hnsw = HNSWIndex.load_index("hnsw_index.npz")
+```
+
+### 6.4 性能评测
+
+运行性能评测模块对比不同索引方案：
+
+```bash
+python performance_evaluator.py
+```
+
+评测结果示例：
+
+| 方法 | 构建时间(s) | 查询时间(s) | 内存(MB) | 召回率 |
+|------|------------|------------|----------|--------|
+| FAISS_Flat | 0.001 | 0.007 | 2.32 | 1.0000 |
+| FAISS_IVFFlat | 0.037 | 0.001 | 4.88 | 1.0000 |
+| FAISS_HNSW | 0.124 | 0.001 | 4.25 | 1.0000 |
+| HNSW_self | 320.24 | 1.30 | 19.25 | 0.8620 |
+
+---
+
+## 7. 总结
 
 本项目提供了从数据读取到ANN索引构建的完整流程：
 
 1. **数据读取**：`data_loader.py` 从 h5ad 提取基础数据
 2. **数据处理**：`vector_processor.py` 完成校验、清洗、向量化
-3. **索引构建**：生成可直接使用的 FAISS 索引文件
+3. **FAISS索引**：使用FAISS库构建高效索引
+4. **HNSW实现**：自实现HNSW算法（任务3核心要求）
+5. **性能评测**：`performance_evaluator.py` 对比不同方案
 
-所有生成的数据文件（CSV、NPY、FAISS索引）都已包含在项目中，可直接使用。
+所有生成的数据文件（CSV、NPY、FAISS索引、HNSW索引）都已包含在项目中，可直接使用。
