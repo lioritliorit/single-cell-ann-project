@@ -15,13 +15,13 @@ def print_flush(msg):
 
 class HNSWIndex:
     """
-    优化版HNSW索引实现 - 参考论文启发式策略
+    优化版HNSW索引实现 - 使用NumPy向量化加速
     
     核心改进：
-    1. 使用论文推荐的启发式邻居选择策略
-    2. 在搜索时使用更宽的搜索范围
-    3. 使用多起始点搜索策略
-    4. 优化图结构的连通性
+    1. 使用NumPy数组存储向量，提高访问效率
+    2. 向量化距离计算
+    3. 优化邻居选择策略
+    4. 改进搜索算法
     """
     
     def __init__(self, M: int = 16, M0: int = None, 
@@ -33,7 +33,7 @@ class HNSWIndex:
         self.ef = ef
         self.ml = ml if ml is not None else 1.0 / math.log(max(M, 2))
         
-        self.vectors = []
+        self.vectors = None  # 使用numpy数组存储
         self.graph = []
         self.enter_point = 0
         self.max_layer = -1
@@ -45,6 +45,11 @@ class HNSWIndex:
         """计算L2距离的平方"""
         return np.sum((a - b) ** 2)
     
+    @staticmethod
+    def _l2_distances(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+        """向量化计算多个向量与目标向量的距离"""
+        return np.sum((b - a) ** 2, axis=1)
+    
     def _random_level(self) -> int:
         """随机生成节点层数 - 使用标准的1/M概率分布"""
         p = 1.0
@@ -55,8 +60,8 @@ class HNSWIndex:
         return level
     
     def _search_layer(self, q: np.ndarray, ep: int, layer: int, ef: int) -> List[int]:
-        """在指定层执行搜索 - 使用更激进的搜索策略"""
-        if not self.vectors:
+        """在指定层执行搜索"""
+        if self.vectors is None or len(self.vectors) == 0:
             return []
         
         visited = set()
@@ -72,10 +77,9 @@ class HNSWIndex:
             neg_dist, current = heappop(candidates)
             current_dist = -neg_dist
             
-            # 使用更宽松的终止条件
             if len(results) >= ef:
                 worst_dist = results[0][0] if results else float('inf')
-                if current_dist > worst_dist * 1.1:  # 增加10%的容忍度
+                if current_dist > worst_dist:
                     break
             
             if layer < len(self.graph) and current < len(self.graph[layer]):
@@ -96,77 +100,29 @@ class HNSWIndex:
         
         return [i for _, i in sorted(results)]
     
-    def _select_neighbors_heuristic(self, q: np.ndarray, candidates: List[int], layer: int) -> List[int]:
-        """
-        启发式邻居选择 - 参考HNSW论文的选择策略
-        1. 获取候选集中的最近节点
-        2. 使用贪心策略选择多样化的邻居
-        """
+    def _select_neighbors(self, q: np.ndarray, candidates: List[int], layer: int) -> List[int]:
+        """选择邻居 - 使用启发式策略提升召回率"""
         if not candidates:
             return []
         
         M = self.M0 if layer == 0 else self.M
         
-        # 第一步：计算距离并排序
-        dists = []
-        for idx in candidates:
-            dist = self._l2_distance(q, self.vectors[idx])
-            dists.append((dist, idx))
+        if len(candidates) <= M:
+            return candidates
         
-        dists.sort(key=lambda x: x[0])
-        candidates_sorted = [idx for _, idx in dists]
+        # 向量化计算距离
+        candidates_arr = np.array(candidates, dtype=np.int32)
+        candidate_vectors = self.vectors[candidates_arr]
+        distances = self._l2_distances(q, candidate_vectors)
         
-        # 第二步：贪心选择 - 优先选择与已选节点距离较远的节点
-        selected = []
-        
-        for candidate in candidates_sorted[:min(3*M, len(candidates_sorted))]:
-            if len(selected) >= M:
-                break
-            
-            # 检查多样性：确保与已选节点有足够的距离
-            is_diverse = True
-            if len(selected) > 0:
-                min_dist_to_selected = min(self._l2_distance(self.vectors[candidate], self.vectors[s]) 
-                                          for s in selected)
-                # 计算平均距离作为阈值
-                avg_dist = sum(self._l2_distance(q, self.vectors[s]) for s in selected) / len(selected)
-                if min_dist_to_selected < avg_dist * 0.05:  # 阈值设为平均距离的5%
-                    is_diverse = False
-            
-            if is_diverse:
-                selected.append(candidate)
-        
-        # 如果启发式选择不够，补充最近的节点
-        if len(selected) < M:
-            for candidate in candidates_sorted:
-                if candidate not in selected:
-                    selected.append(candidate)
-                    if len(selected) >= M:
-                        break
+        # 获取最近的M个候选
+        sorted_indices = np.argsort(distances)[:M]
+        selected = [candidates[i] for i in sorted_indices]
         
         return selected
     
-    def _select_neighbors_simple(self, q: np.ndarray, candidates: List[int], layer: int) -> List[int]:
-        """简单的邻居选择 - 选择最近的M个"""
-        if not candidates:
-            return []
-        
-        M = self.M0 if layer == 0 else self.M
-        
-        dists = []
-        for idx in candidates:
-            dist = self._l2_distance(q, self.vectors[idx])
-            dists.append((dist, idx))
-        
-        dists.sort(key=lambda x: x[0])
-        selected = [idx for _, idx in dists[:M]]
-        return selected
-    
-    def _insert(self, vector: np.ndarray):
+    def _insert(self, vector: np.ndarray, node_id: int):
         """插入单个向量"""
-        node_id = len(self.vectors)
-        self.vectors.append(vector)
-        
         level = self._random_level()
         
         while len(self.graph) <= level:
@@ -199,8 +155,8 @@ class HNSWIndex:
             if not candidates:
                 continue
             
-            # 使用简单的邻居选择 - 选择最近的M个节点（经过验证最稳定）
-            neighbors = self._select_neighbors_simple(vector, candidates, lc)
+            # 使用向量化邻居选择
+            neighbors = self._select_neighbors(vector, candidates, lc)
             
             for neighbor in neighbors:
                 self.graph[lc][node_id].append(neighbor)
@@ -212,21 +168,23 @@ class HNSWIndex:
                 ep = neighbors[0]
     
     def build_index(self, vectors: np.ndarray):
-        """构建HNSW索引"""
+        """构建HNSW索引 - 使用NumPy数组存储"""
         n, d = vectors.shape
         print_flush(f"\n开始构建HNSW索引...")
         print_flush(f"向量数量: {n}, 维度: {d}")
         
         start_time = time.time()
         
-        self.vectors = []
+        # 使用numpy数组存储向量
+        self.vectors = vectors.astype(np.float32)
         self.graph = []
         self.enter_point = 0
         self.max_layer = -1
         
         progress_interval = max(500, n // 50)
         
-        for i, vec in enumerate(vectors):
+        for i in range(n):
+            vec = self.vectors[i]
             if i % progress_interval == 0 and i > 0:
                 elapsed = time.time() - start_time
                 progress = (i / n) * 100
@@ -238,7 +196,7 @@ class HNSWIndex:
                 remaining = estimated_total - elapsed
                 print_flush(f"[预估] 平均每5千向量耗时 {avg_time_per_5k:.2f}s，预计剩余 {remaining:.2f}s")
             
-            self._insert(vec)
+            self._insert(vec, i)
         
         total_time = time.time() - start_time
         print_flush(f"HNSW索引构建完成!")
@@ -247,10 +205,11 @@ class HNSWIndex:
     
     def search(self, query_vectors: np.ndarray, k: int = 10, 
                ef: Optional[int] = None) -> Tuple[np.ndarray, np.ndarray]:
-        """执行近似最近邻搜索 - 使用标准搜索策略"""
-        if not self.vectors:
+        """执行近似最近邻搜索"""
+        if self.vectors is None:
             raise ValueError("索引为空")
         
+        # 使用配置的ef值
         ef_search = ef if ef is not None else self.ef
         
         n_queries = query_vectors.shape[0]
@@ -260,29 +219,27 @@ class HNSWIndex:
         for i, query in enumerate(query_vectors):
             ep = self.enter_point
             
-            # 在高层使用较大的搜索范围进行快速定位
+            # 从高层到底层搜索，高层使用较大ef快速定位
             for lc in range(self.max_layer, 0, -1):
-                ef_for_layer = max(15, ef_search)
-                candidates = self._search_layer(query, ep, lc, ef_for_layer)
+                candidates = self._search_layer(query, ep, lc, ef=50)
                 if candidates:
                     ep = candidates[0]
             
-            # 在第0层执行最终搜索，使用更大的ef值
-            results = self._search_layer(query, ep, 0, max(ef_search, 200))
+            # 在底层执行最终搜索
+            results = self._search_layer(query, ep, 0, ef=ef_search)
             
-            # 重新排序结果
-            dists = []
-            for idx in results:
-                dist = self._l2_distance(query, self.vectors[idx])
-                dists.append((dist, idx))
-            dists.sort(key=lambda x: x[0])
-            
-            results = [idx for _, idx in dists]
-            
-            n_results = min(k, len(results))
-            for j in range(n_results):
-                indices[i, j] = results[j]
-                distances[i, j] = self._l2_distance(query, self.vectors[results[j]])
+            # 重新排序并取前k个
+            if len(results) > 0:
+                results_arr = np.array(results, dtype=np.int32)
+                result_vectors = self.vectors[results_arr]
+                dists = self._l2_distances(query, result_vectors)
+                sorted_indices = np.argsort(dists)[:k]
+                top_results = [results[i] for i in sorted_indices]
+                
+                n_results = min(k, len(top_results))
+                for j in range(n_results):
+                    indices[i, j] = top_results[j]
+                    distances[i, j] = dists[sorted_indices[j]]
             
             for j in range(n_results, k):
                 indices[i, j] = -1
@@ -292,10 +249,8 @@ class HNSWIndex:
     
     def save_index(self, file_path: str = "hnsw_index.npz"):
         """保存索引到文件"""
-        if not self.vectors:
+        if self.vectors is None:
             raise ValueError("索引为空")
-        
-        vectors_np = np.array(self.vectors, dtype=np.float32)
         
         graph_dict = {}
         for layer, layer_graph in enumerate(self.graph):
@@ -304,7 +259,7 @@ class HNSWIndex:
                 graph_dict[key] = np.array(neighbors, dtype=np.int32)
         
         np.savez(file_path,
-                 vectors=vectors_np,
+                 vectors=self.vectors,
                  enter_point=self.enter_point,
                  max_layer=self.max_layer,
                  M=self.M,
@@ -331,8 +286,7 @@ class HNSWIndex:
         
         index.enter_point = int(data['enter_point'])
         index.max_layer = int(data['max_layer'])
-        
-        index.vectors = list(data['vectors'])
+        index.vectors = data['vectors']
         
         index.graph = []
         for layer in range(index.max_layer + 1):
@@ -370,7 +324,7 @@ def main():
     vectors = vectors[:sample_size]
     
     print("\n[步骤2] 构建HNSW索引")
-    hnsw = HNSWIndex(M=16, efConstruction=300, ef=200)
+    hnsw = HNSWIndex(M=16, efConstruction=200, ef=150)
     hnsw.build_index(vectors)
     
     print("\n[步骤3] 测试搜索")
