@@ -198,7 +198,7 @@ distances, indices = index_builder.search(query_vectors, k=10)
 
 ---
 
-## 6. HNSW算法实现（任务3）
+## 6. HNSW算法实现
 
 ### 6.1 算法概述
 
