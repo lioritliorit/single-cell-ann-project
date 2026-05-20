@@ -23,6 +23,7 @@ const resultsContainer = $('results-container');
 const resultsBody = $('results-body');
 const errorMsg = $('error-msg');
 const errorText = $('error-text');
+const engineBadge = document.getElementById('badge-engine');
 
 // ===== Initialize =====
 document.addEventListener('DOMContentLoaded', async () => {
@@ -30,7 +31,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     await loadCellTypes();
     await loadVisualizationData();
     setupNavigation();
-    loadCellTypeFilterViz();
+    setupIndexSwitch();
 
     // Auto-search on load with default cell ID
     if (cellIdInput.value) {
@@ -80,16 +81,80 @@ async function loadIndexStatus() {
         $('badge-dim').innerHTML = `<i class="fas fa-vector-square"></i> ${data.dimension} 维`;
         $('badge-status').innerHTML = `<i class="fas fa-circle" style="color:#4caf50;"></i> 已就绪`;
 
+        if (engineBadge) {
+            engineBadge.innerHTML = `<i class="fas fa-microchip"></i> ${(data.current_index_type || 'faiss').toUpperCase()}`;
+        }
+
         $('stat-cell-count').textContent = data.cell_count.toLocaleString();
         $('stat-dimension').textContent = data.dimension;
         $('stat-index-total').textContent = data.index_total.toLocaleString();
+        $('stat-index-type').textContent = (data.current_index_type || 'faiss').toUpperCase();
         $('index-status-loading').style.display = 'none';
         $('index-status-content').style.display = 'block';
+
+        // 显示索引引擎特定参数
+        const extraParams = $('stat-extra-params');
+        const extraValue = $('stat-extra-value');
+        const extraLabel = $('stat-extra-label');
+        if (data.current_index_type === 'hnsw' && data.M) {
+            extraParams.style.display = 'block';
+            extraValue.textContent = `M=${data.M}, ef=${data.ef}`;
+            extraLabel.textContent = 'HNSW 参数';
+        } else {
+            extraParams.style.display = 'none';
+        }
+
+        updateSwitchBtnText(data.current_index_type);
     } catch (err) {
         $('badge-cells').innerHTML = `<i class="fas fa-circle" style="color:#f44336;"></i> 加载失败`;
         $('badge-dim').textContent = '无法连接';
         $('badge-status').innerHTML = `<i class="fas fa-exclamation-triangle" style="color:#f44336;"></i> 离线`;
+        if (engineBadge) {
+            engineBadge.innerHTML = `<i class="fas fa-microchip"></i> ?`;
+        }
     }
+}
+
+function updateSwitchBtnText(currentType) {
+    const btnText = $('switch-btn-text');
+    btnText.textContent = currentType === 'faiss' ? '切换到 HNSW' : '切换到 FAISS';
+}
+
+// ===== Index Switching =====
+function setupIndexSwitch() {
+    $('switch-index-btn').addEventListener('click', switchIndex);
+}
+
+async function switchIndex() {
+    const btn = $('switch-index-btn');
+    const statusEl = $('switch-status');
+    const previousType = state.indexStatus?.current_index_type || 'faiss';
+    btn.disabled = true;
+    statusEl.textContent = '切换中...';
+    statusEl.style.color = '#666';
+
+    const targetType = previousType === 'faiss' ? 'hnsw' : 'faiss';
+
+    try {
+        const data = await apiPost('/api/index/switch', { index_type: targetType });
+        statusEl.textContent = `已切换到 ${targetType.toUpperCase()}`;
+        statusEl.style.color = '#2e7d32';
+        updateSwitchBtnText(targetType);
+
+        await loadIndexStatus();
+    } catch (err) {
+        // 切换失败，回滚状态
+        statusEl.textContent = `切换失败: ${err.message}`;
+        statusEl.style.color = '#c62828';
+        // 回滚按钮文本
+        updateSwitchBtnText(previousType);
+    }
+
+    btn.disabled = false;
+
+    setTimeout(() => {
+        statusEl.textContent = '';
+    }, 4000);
 }
 
 // ===== Load Cell Types =====
@@ -125,7 +190,6 @@ async function loadVisualizationData() {
 function renderCellTypeChart(data) {
     const ctx = $('cell-type-chart').getContext('2d');
 
-    // Sort by count descending, take top 15
     const items = data.cell_type_counts
         .sort((a, b) => b.count - a.count)
         .slice(0, 15);
@@ -153,7 +217,8 @@ function renderCellTypeChart(data) {
         },
         options: {
             responsive: true,
-            maintainAspectRatio: true,
+            maintainAspectRatio: false,
+            responsiveAnimationDuration: 0,
             indexAxis: 'y',
             plugins: {
                 legend: { display: false },
@@ -184,7 +249,6 @@ function renderPCAScatter(data) {
     const ctx = $('pca-scatter').getContext('2d');
 
     const points = data.pca_points || [];
-    const cellTypeColors = {};
     const colorPalette = [
         '#1565c0', '#2e7d32', '#e65100', '#6a1b9a', '#00838f',
         '#c62828', '#558b2f', '#283593', '#ad1457', '#00695c',
@@ -192,13 +256,11 @@ function renderPCAScatter(data) {
         '#651fff', '#ff6d00', '#00bcd4', '#d500f9', '#76ff03',
     ];
 
-    // Group points by cell type
     const typeGroups = {};
     points.forEach(p => {
         const ct = p.cell_type || 'unknown';
         if (!typeGroups[ct]) {
             typeGroups[ct] = { label: ct, data: [], color: colorPalette[Object.keys(typeGroups).length % colorPalette.length], hidden: false };
-            cellTypeColors[ct] = typeGroups[ct].color;
         }
         typeGroups[ct].data.push({ x: p.pc1, y: p.pc2 });
     });
@@ -214,7 +276,8 @@ function renderPCAScatter(data) {
         data: { datasets },
         options: {
             responsive: true,
-            maintainAspectRatio: true,
+            maintainAspectRatio: false,
+            responsiveAnimationDuration: 0,
             animation: false,
             plugins: {
                 legend: {
@@ -252,41 +315,42 @@ function renderPCAScatter(data) {
         }
     });
 
-    // Set up cell type filter for scatter
+    // 图表就绪后初始化筛选器（不再使用轮询）
+    initCellTypeFilterViz(data);
+}
+
+function initCellTypeFilterViz(data) {
     const select = $('cell-type-filter-viz');
-    select.addEventListener('change', () => {
-        const selected = select.value;
+    if (!select) return;
+
+    // 清除旧选项
+    select.innerHTML = '';
+
+    const types = [...new Set(data.pca_points.map(p => p.cell_type || 'unknown'))].sort();
+
+    const allOpt = document.createElement('option');
+    allOpt.value = '';
+    allOpt.textContent = '全部类型';
+    select.appendChild(allOpt);
+
+    types.forEach(t => {
+        const o = document.createElement('option');
+        o.value = t;
+        o.textContent = t;
+        select.appendChild(o);
+    });
+
+    // 移除旧的监听器并添加新监听器
+    const newSelect = select.cloneNode(true);
+    select.parentNode.replaceChild(newSelect, select);
+
+    newSelect.addEventListener('change', () => {
+        const selected = newSelect.value;
         state.pcaChart.data.datasets.forEach(ds => {
-            if (selected === '') {
-                ds.hidden = false;
-            } else {
-                ds.hidden = ds.label !== selected;
-            }
+            ds.hidden = selected !== '' && ds.label !== selected;
         });
         state.pcaChart.update();
     });
-}
-
-function loadCellTypeFilterViz() {
-    const select = $('cell-type-filter-viz');
-    // Will be populated when pca data loads
-    const orig = select.addEventListener;
-    const poll = setInterval(() => {
-        if (state.pcaData && state.pcaChart) {
-            clearInterval(poll);
-            const types = [...new Set(state.pcaData.pca_points.map(p => p.cell_type || 'unknown'))].sort();
-            const opt = document.createElement('option');
-            opt.value = '';
-            opt.textContent = '全部类型';
-            select.appendChild(opt);
-            types.forEach(t => {
-                const o = document.createElement('option');
-                o.value = t;
-                o.textContent = t;
-                select.appendChild(o);
-            });
-        }
-    }, 200);
 }
 
 // ===== Search =====
@@ -302,7 +366,6 @@ searchForm.addEventListener('submit', async (e) => {
         return;
     }
 
-    // Hide previous results
     hideError();
     resultsContainer.style.display = 'none';
     queryInfo.style.display = 'none';
@@ -320,17 +383,36 @@ searchForm.addEventListener('submit', async (e) => {
         loading.style.display = 'none';
         searchBtn.disabled = false;
 
-        // Show query info
         queryTime.textContent = data.elapsed_ms;
         queryCount.textContent = data.result_count;
         queryCellId.textContent = cellId;
         queryInfo.style.display = 'block';
 
-        // Render results
+        // 显示搜索引擎信息
+        const engineInfo = document.getElementById('engine-info');
+        if (engineInfo) {
+            engineInfo.textContent = `引擎: ${(data.index_type || '?').toUpperCase()}`;
+        }
+
+        // 显示警告信息
+        if (data.warnings && data.warnings.length > 0) {
+            const warningEl = document.getElementById('search-warnings');
+            if (warningEl) {
+                warningEl.innerHTML = data.warnings.map(w =>
+                    `<div class="alert alert-warning"><i class="fas fa-exclamation-circle"></i> ${w}</div>`
+                ).join('');
+                warningEl.style.display = 'block';
+            }
+        } else {
+            const warningEl = document.getElementById('search-warnings');
+            if (warningEl) {
+                warningEl.style.display = 'none';
+            }
+        }
+
         renderResults(data.results);
         resultsContainer.style.display = 'block';
 
-        // Highlight searched cell on PCA plot
         highlightQueryCell(data);
 
     } catch (err) {
@@ -388,18 +470,15 @@ function renderResults(results) {
 function highlightQueryCell(data) {
     if (!state.pcaChart || !state.pcaData) return;
 
-    // Reset all point styles
-    state.pcaChart.data.datasets.forEach(ds => {
-        ds.pointRadius = 2;
-        ds.pointBorderWidth = 0;
-    });
+    // 清除旧的"查询细胞"高亮（移除之前添加的dataset）
+    state.pcaChart.data.datasets = state.pcaChart.data.datasets.filter(
+        ds => ds.label !== '查询细胞'
+    );
 
-    // Highlight query cell if we can find it
     if (data.query && data.query.row_index !== null && data.query.row_index !== undefined) {
         const rowIdx = data.query.row_index;
         const pcaPoint = state.pcaData.pca_points[rowIdx];
         if (pcaPoint) {
-            // Add a special highlighted point
             const highlightDs = {
                 label: '查询细胞',
                 data: [{ x: pcaPoint.pc1, y: pcaPoint.pc2 }],

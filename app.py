@@ -1,22 +1,40 @@
 import os
+import threading
 from typing import Any, Dict
 
 import numpy as np
 from flask import Flask, jsonify, render_template, request
 
 from ann_search_service import SearchInputError, SingleCellANNService
+from hnsw_search_service import HNSWSearchService
 
 
 def create_app() -> Flask:
     app = Flask(__name__)
-    service = SingleCellANNService(
+
+    # Initialize both services for index switching
+    faiss_service = SingleCellANNService(
         index_path=os.getenv("ANN_INDEX_PATH", "faiss_index.bin"),
+        vectors_path=os.getenv("ANN_VECTORS_PATH", "cleaned_pca_vectors.npy"),
+        metadata_path=os.getenv("ANN_METADATA_PATH", "cleaned_cell_metadata.csv"),
+    )
+
+    hnsw_service = HNSWSearchService(
+        index_path=os.getenv("HNSW_INDEX_PATH", "hnsw_index.npz"),
         vectors_path=os.getenv("ANN_VECTORS_PATH", "cleaned_pca_vectors.npy"),
         metadata_path=os.getenv("ANN_METADATA_PATH", "cleaned_cell_metadata.csv"),
     )
 
     # Cache for visualization data
     viz_cache: Dict[str, Any] = {}
+
+    # Track current index type with threading lock
+    current_index_type: str = "faiss"
+    index_lock = threading.Lock()
+
+    def get_search_service():
+        """线程安全地获取当前搜索引擎实例"""
+        return faiss_service if current_index_type == "faiss" else hnsw_service
 
     # ===== Frontend =====
 
@@ -28,23 +46,64 @@ def create_app() -> Flask:
 
     @app.get("/api/health")
     def health():
-        return jsonify({"status": "ok"})
+        with index_lock:
+            engine = current_index_type
+        return jsonify({"status": "ok", "active_index_engine": engine})
 
     @app.get("/api/index/status")
     def index_status():
-        return jsonify(service.status())
+        with index_lock:
+            engine = current_index_type
+        service = faiss_service if engine == "faiss" else hnsw_service
+        try:
+            status = service.status()
+        except Exception as e:
+            return jsonify({
+                "loaded": False,
+                "current_index_type": engine,
+                "available_index_types": ["faiss", "hnsw"],
+                "error": str(e),
+            })
+        status["current_index_type"] = engine
+        status["available_index_types"] = ["faiss", "hnsw"]
+        return jsonify(status)
+
+    @app.post("/api/index/switch")
+    def switch_index():
+        nonlocal current_index_type
+        payload: Dict[str, Any] = request.get_json(silent=True) or {}
+        new_type = payload.get("index_type", "").lower()
+
+        if new_type not in ["faiss", "hnsw"]:
+            return jsonify({
+                "error": "invalid_index_type",
+                "message": f"索引类型必须是 faiss 或 hnsw，收到: {new_type}",
+            }), 400
+
+        try:
+            # 在锁内完成加载和切换，保证原子性
+            with index_lock:
+                if new_type == "faiss":
+                    faiss_service.load()
+                else:
+                    hnsw_service.load()
+                current_index_type = new_type
+            return jsonify({"success": True, "index_type": current_index_type})
+        except Exception as e:
+            return jsonify({"error": "load_failed", "message": str(e)}), 500
 
     # ===== Cell Info =====
 
     @app.get("/api/cells/<path:cell_id>")
     def get_cell(cell_id: str):
+        with index_lock:
+            service = get_search_service()
         return jsonify(service.get_cell(cell_id))
 
     # ===== Cell Types =====
 
     @app.get("/api/cell-types")
     def list_cell_types():
-        """Return sorted list of unique cell types for filter dropdown."""
         meta_path = os.getenv("ANN_METADATA_PATH", "cleaned_cell_metadata.csv")
         if not os.path.exists(meta_path):
             return jsonify({"cell_types": []})
@@ -61,7 +120,6 @@ def create_app() -> Flask:
 
     @app.get("/api/visualization-data")
     def visualization_data():
-        """Return PCA 2D coordinates and cell type counts for charts."""
         nonlocal viz_cache
         if viz_cache:
             return jsonify(viz_cache)
@@ -74,7 +132,6 @@ def create_app() -> Flask:
         except Exception:
             return jsonify({"pca_points": [], "cell_type_counts": []})
 
-        # Cell type counts
         type_counts: Dict[str, int] = {}
         cell_types_list: list[str] = []
         if os.path.exists(meta_path):
@@ -85,7 +142,6 @@ def create_app() -> Flask:
                     cell_types_list.append(ct if ct else "unknown")
                     type_counts[ct if ct else "unknown"] = type_counts.get(ct if ct else "unknown", 0) + 1
 
-        # Subsample if too many points (max 5000 for scatter performance)
         n = vectors.shape[0]
         if n > 5000:
             rng = np.random.default_rng(42)
@@ -113,6 +169,11 @@ def create_app() -> Flask:
     @app.post("/api/search")
     def search():
         payload: Dict[str, Any] = request.get_json(silent=True) or {}
+
+        with index_lock:
+            service = get_search_service()
+            engine = current_index_type
+
         result = service.search(
             cell_id=payload.get("cell_id"),
             vector=payload.get("vector"),
@@ -121,6 +182,7 @@ def create_app() -> Flask:
             include_self=bool(payload.get("include_self", False)),
             filters=payload.get("filters") or {},
         )
+        result["index_type"] = engine
         return jsonify(result)
 
     # ===== Error Handlers =====
@@ -131,7 +193,7 @@ def create_app() -> Flask:
 
     @app.errorhandler(FileNotFoundError)
     def handle_missing_file(error: FileNotFoundError):
-        return jsonify({"error": "missing_file", "message": str(error)}), 500
+        return jsonify({"error": "missing_file", "message": str(error)}), 404
 
     @app.errorhandler(RuntimeError)
     def handle_runtime_error(error: RuntimeError):

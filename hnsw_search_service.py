@@ -3,6 +3,10 @@ import os
 import time
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
+import numpy as np
+
+from hnsw_index import HNSWIndex
+
 
 DEFAULT_FIELDS = [
     "cell_id",
@@ -23,12 +27,12 @@ class SearchInputError(ValueError):
     """Raised when a client query cannot be executed."""
 
 
-class SingleCellANNService:
-    """Top-K search wrapper for the prebuilt single-cell FAISS index."""
+class HNSWSearchService:
+    """Top-K search wrapper for the prebuilt HNSW index."""
 
     def __init__(
         self,
-        index_path: str = "faiss_index.bin",
+        index_path: str = "hnsw_index.npz",
         vectors_path: str = "cleaned_pca_vectors.npy",
         metadata_path: str = "cleaned_cell_metadata.csv",
         result_fields: Optional[Iterable[str]] = None,
@@ -38,7 +42,7 @@ class SingleCellANNService:
         self.metadata_path = metadata_path
         self.result_fields = list(result_fields or DEFAULT_FIELDS)
 
-        self.index = None
+        self.index: Optional[HNSWIndex] = None
         self.vectors = None
         self.metadata: List[Dict[str, str]] = []
         self.cell_id_to_row: Dict[str, int] = {}
@@ -47,21 +51,12 @@ class SingleCellANNService:
         self._load_error: Optional[str] = None
 
     def load(self) -> None:
-        """Load the FAISS index, PCA vectors and metadata into the service."""
-        self._assert_file_exists(self.index_path, "FAISS index")
+        """Load the HNSW index, PCA vectors and metadata into the service."""
+        self._assert_file_exists(self.index_path, "HNSW index")
         self._assert_file_exists(self.vectors_path, "PCA vector file")
         self._assert_file_exists(self.metadata_path, "metadata file")
 
-        try:
-            import faiss
-            import numpy as np
-        except ImportError as exc:
-            raise RuntimeError(
-                "Missing runtime dependency. Install with: "
-                "pip install -r requirements.txt"
-            ) from exc
-
-        self.index = faiss.read_index(self.index_path)
+        self.index = HNSWIndex.load_index(self.index_path)
         self.vectors = np.load(self.vectors_path, mmap_mode="r")
         self.metadata = self._load_metadata(self.metadata_path)
         self.cell_id_to_row = {
@@ -76,27 +71,35 @@ class SingleCellANNService:
                 f"{len(self.vectors)} vectors vs {len(self.metadata)} metadata rows"
             )
 
-        if self.index.ntotal != len(self.metadata):
+        if self.index.vectors is not None and len(self.index.vectors) != len(self.metadata):
             raise RuntimeError(
-                "FAISS index size and metadata count do not match: "
-                f"{self.index.ntotal} indexed vectors vs {len(self.metadata)} metadata rows"
+                "HNSW index size and metadata count do not match: "
+                f"{len(self.index.vectors)} indexed vectors vs {len(self.metadata)} metadata rows"
             )
 
         self.dimension = int(self.vectors.shape[1])
-        self._load_attempted = False
+        self._load_attempted = False  # Reset so future _ensure_loaded calls don't short-circuit
         self._load_error = None
 
     def status(self) -> Dict[str, Any]:
         self._ensure_loaded()
+        if not self._is_loaded():
+            return {
+                "loaded": False,
+                "error": self._load_error or "Service not loaded",
+            }
         return {
             "loaded": True,
             "index_path": self.index_path,
             "vectors_path": self.vectors_path,
             "metadata_path": self.metadata_path,
             "cell_count": len(self.metadata),
-            "index_total": int(self.index.ntotal),
+            "index_total": len(self.index.vectors) if self.index and self.index.vectors is not None else 0,
             "dimension": self.dimension,
-            "index_engine": "faiss",
+            "index_engine": "hnsw",
+            "M": self.index.M if self.index else None,
+            "ef": self.index.ef if self.index else None,
+            "efConstruction": self.index.efConstruction if self.index else None,
         }
 
     def get_cell(self, cell_id: str) -> Dict[str, Any]:
@@ -112,7 +115,7 @@ class SingleCellANNService:
         cell_id: Optional[str] = None,
         vector: Optional[List[float]] = None,
         k: int = 10,
-        nprobe: Optional[int] = None,
+        nprobe: Optional[int] = None,  # Not used for HNSW
         include_self: bool = False,
         filters: Optional[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
@@ -121,9 +124,6 @@ class SingleCellANNService:
         filters = filters or {}
         k = self._validate_k(k)
         query_vector, query_cell_id, query_row = self._build_query(cell_id, vector)
-
-        if nprobe is not None and hasattr(self.index, "nprobe"):
-            self.index.nprobe = self._validate_nprobe(nprobe)
 
         started = time.perf_counter()
         candidate_k = self._candidate_count(k, bool(filters), include_self)
@@ -149,13 +149,14 @@ class SingleCellANNService:
                 "row_index": query_row,
                 "dimension": self.dimension,
                 "k": k,
-                "nprobe": getattr(self.index, "nprobe", None),
                 "include_self": include_self,
                 "filters": filters,
             },
             "elapsed_ms": elapsed_ms,
             "result_count": len(results),
             "results": results,
+            "engine": "hnsw",
+            "warnings": ["nprobe参数对HNSW索引无效，已忽略"] if nprobe is not None else [],
         }
 
     def _is_loaded(self) -> bool:
@@ -180,14 +181,6 @@ class SingleCellANNService:
     ) -> Tuple[Any, Optional[str], Optional[int]]:
         if bool(cell_id) == bool(vector):
             raise SearchInputError("Provide exactly one of cell_id or vector")
-
-        try:
-            import numpy as np
-        except ImportError as exc:
-            raise RuntimeError(
-                "Missing runtime dependency. Install with: "
-                "pip install -r requirements.txt"
-            ) from exc
 
         if cell_id:
             row_index = self.cell_id_to_row.get(cell_id)
@@ -247,16 +240,6 @@ class SingleCellANNService:
             raise SearchInputError("k must be an integer") from exc
         if value < 1 or value > 100:
             raise SearchInputError("k must be between 1 and 100")
-        return value
-
-    @staticmethod
-    def _validate_nprobe(nprobe: int) -> int:
-        try:
-            value = int(nprobe)
-        except (TypeError, ValueError) as exc:
-            raise SearchInputError("nprobe must be an integer") from exc
-        if value < 1:
-            raise SearchInputError("nprobe must be positive")
         return value
 
     def _candidate_count(self, k: int, has_filters: bool, include_self: bool) -> int:
