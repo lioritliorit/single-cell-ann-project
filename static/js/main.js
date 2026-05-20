@@ -41,12 +41,32 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 // ===== Navigation =====
 function setupNavigation() {
-    document.querySelectorAll('.nav-link').forEach(link => {
-        link.addEventListener('click', (e) => {
-            document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
-            link.classList.add('active');
+    const sections = document.querySelectorAll("section[id]");
+    const navLinks = document.querySelectorAll(".nav-link");
+
+    function setActive(id) {
+        navLinks.forEach(l => l.classList.toggle("active", l.getAttribute("href") === "#" + id));
+    }
+
+    // 点击导航跳转时立即切换高亮
+    navLinks.forEach(link => {
+        link.addEventListener("click", () => {
+            const id = link.getAttribute("href")?.replace("#", "");
+            if (id) setActive(id);
         });
     });
+
+    // 滚动时根据可见区域自动切换
+    const observer = new IntersectionObserver(entries => {
+        for (const entry of entries) {
+            if (entry.isIntersecting) {
+                setActive(entry.target.id);
+                break;
+            }
+        }
+    }, { rootMargin: "-20% 0px -60% 0px" });
+
+    sections.forEach(s => observer.observe(s));
 }
 
 // ===== API Calls =====
