@@ -481,7 +481,7 @@ class PerformanceEvaluator:
         # 3. FAISS HNSW
         self.evaluate_faiss_hnsw(M=16, ef_search=50, k=k)
         
-        # 4. 自实现HNSW
+        # 4. 自实现HNSW - 优化配置
         self.evaluate_hnsw(M=16, efConstruction=300, ef_search=200, k=k)
         
         # 5. 计算召回率

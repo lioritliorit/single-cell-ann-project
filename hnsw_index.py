@@ -101,7 +101,7 @@ class HNSWIndex:
         return [i for _, i in sorted(results)]
     
     def _select_neighbors(self, q: np.ndarray, candidates: List[int], layer: int) -> List[int]:
-        """选择邻居 - 使用启发式策略提升召回率"""
+        """选择邻居 - 使用简单策略：选择最近的M个"""
         if not candidates:
             return []
         
@@ -219,9 +219,9 @@ class HNSWIndex:
         for i, query in enumerate(query_vectors):
             ep = self.enter_point
             
-            # 从高层到底层搜索，高层使用较大ef快速定位
+            # 从最高层快速定位到接近查询点的位置
             for lc in range(self.max_layer, 0, -1):
-                candidates = self._search_layer(query, ep, lc, ef=50)
+                candidates = self._search_layer(query, ep, lc, ef=10)
                 if candidates:
                     ep = candidates[0]
             
@@ -241,7 +241,7 @@ class HNSWIndex:
                     indices[i, j] = top_results[j]
                     distances[i, j] = dists[sorted_indices[j]]
             
-            for j in range(n_results, k):
+            for j in range(n_results if 'n_results' in locals() else 0, k):
                 indices[i, j] = -1
                 distances[i, j] = float('inf')
         
