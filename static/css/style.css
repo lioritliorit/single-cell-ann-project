@@ -143,7 +143,7 @@ body {
 /* ===== Card ===== */
 .card {
     background: #fff;
-    border-radius: 12px;
+    border-radius: 8px;
     box-shadow: 0 1px 4px rgba(0,0,0,0.08);
     margin-bottom: 24px;
     overflow: hidden;
@@ -278,6 +278,44 @@ body {
     cursor: not-allowed;
 }
 
+.btn-sm {
+    padding: 6px 10px;
+    font-size: 0.78rem;
+    border-width: 1px;
+}
+
+.btn-danger {
+    color: #c62828;
+    border-color: #c62828;
+}
+
+.btn-danger:hover {
+    background: #c62828;
+    color: #fff;
+}
+
+.dataset-extra-row {
+    margin-top: 12px;
+}
+
+.dataset-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 18px 0 8px;
+    flex-wrap: wrap;
+}
+
+.dataset-stale {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: #fff8e1;
+    color: #f57f17;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
 /* ===== Switch Section ===== */
 .switch-section {
     margin-top: 20px;
@@ -385,6 +423,12 @@ body {
     background: #ffebee;
     color: #c62828;
     border: 1px solid #ffcdd2;
+}
+
+.alert-success {
+    background: #e8f5e9;
+    color: #2e7d32;
+    border: 1px solid #c8e6c9;
 }
 
 .alert-warning {

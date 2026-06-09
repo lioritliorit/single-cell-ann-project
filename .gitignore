@@ -18,3 +18,7 @@ package-lock.json
 # 运行日志
 *.log
 /tmp/
+
+datasets/uploads/
+datasets/processed/
+datasets/joint/

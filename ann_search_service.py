@@ -6,6 +6,10 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 DEFAULT_FIELDS = [
     "cell_id",
+    "dataset_id",
+    "dataset_name",
+    "dataset_group",
+    "dataset_source",
     "cell_type",
     "author_cell_type",
     "disease",
@@ -45,6 +49,26 @@ class SingleCellANNService:
         self.dimension: Optional[int] = None
         self._load_attempted = False
         self._load_error: Optional[str] = None
+        self._faiss_available = True
+
+    def configure_paths(
+        self,
+        *,
+        index_path: str,
+        vectors_path: str,
+        metadata_path: str,
+    ) -> None:
+        self.index_path = index_path
+        self.vectors_path = vectors_path
+        self.metadata_path = metadata_path
+        self.index = None
+        self.vectors = None
+        self.metadata = []
+        self.cell_id_to_row = {}
+        self.dimension = None
+        self._load_attempted = False
+        self._load_error = None
+        self._faiss_available = True
 
     def load(self) -> None:
         """Load the FAISS index, PCA vectors and metadata into the service."""
@@ -54,14 +78,13 @@ class SingleCellANNService:
 
         try:
             import faiss
-            import numpy as np
-        except ImportError as exc:
-            raise RuntimeError(
-                "Missing runtime dependency. Install with: "
-                "pip install -r requirements.txt"
-            ) from exc
+            self.index = faiss.read_index(self.index_path)
+            self._faiss_available = True
+        except ImportError:
+            self.index = None
+            self._faiss_available = False
 
-        self.index = faiss.read_index(self.index_path)
+        import numpy as np
         self.vectors = np.load(self.vectors_path, mmap_mode="r")
         self.metadata = self._load_metadata(self.metadata_path)
         self.cell_id_to_row = {
@@ -76,7 +99,7 @@ class SingleCellANNService:
                 f"{len(self.vectors)} vectors vs {len(self.metadata)} metadata rows"
             )
 
-        if self.index.ntotal != len(self.metadata):
+        if self.index is not None and self.index.ntotal != len(self.metadata):
             raise RuntimeError(
                 "FAISS index size and metadata count do not match: "
                 f"{self.index.ntotal} indexed vectors vs {len(self.metadata)} metadata rows"
@@ -94,9 +117,11 @@ class SingleCellANNService:
             "vectors_path": self.vectors_path,
             "metadata_path": self.metadata_path,
             "cell_count": len(self.metadata),
-            "index_total": int(self.index.ntotal),
+            "index_total": int(self.index.ntotal) if self.index is not None else len(self.metadata),
             "dimension": self.dimension,
             "index_engine": "faiss",
+            "faiss_available": self._faiss_available,
+            "fallback_engine": None if self._faiss_available else "numpy_l2",
         }
 
     def get_cell(self, cell_id: str) -> Dict[str, Any]:
@@ -122,12 +147,15 @@ class SingleCellANNService:
         k = self._validate_k(k)
         query_vector, query_cell_id, query_row = self._build_query(cell_id, vector)
 
-        if nprobe is not None and hasattr(self.index, "nprobe"):
+        if nprobe is not None and self.index is not None and hasattr(self.index, "nprobe"):
             self.index.nprobe = self._validate_nprobe(nprobe)
 
         started = time.perf_counter()
         candidate_k = self._candidate_count(k, bool(filters), include_self)
-        distances, indices = self.index.search(query_vector, candidate_k)
+        if self.index is not None:
+            distances, indices = self.index.search(query_vector, candidate_k)
+        else:
+            distances, indices = self._numpy_search(query_vector, candidate_k)
         elapsed_ms = round((time.perf_counter() - started) * 1000, 3)
 
         results = []
@@ -149,17 +177,20 @@ class SingleCellANNService:
                 "row_index": query_row,
                 "dimension": self.dimension,
                 "k": k,
-                "nprobe": getattr(self.index, "nprobe", None),
+                "nprobe": getattr(self.index, "nprobe", None) if self.index is not None else None,
                 "include_self": include_self,
                 "filters": filters,
             },
             "elapsed_ms": elapsed_ms,
             "result_count": len(results),
             "results": results,
+            "warnings": [] if self._faiss_available else [
+                "faiss-cpu 未安装，当前使用 NumPy 精确 L2 检索降级模式。"
+            ],
         }
 
     def _is_loaded(self) -> bool:
-        return self.index is not None and self.vectors is not None and bool(self.metadata)
+        return self.vectors is not None and bool(self.metadata)
 
     def _ensure_loaded(self) -> None:
         if self._is_loaded():
@@ -219,6 +250,9 @@ class SingleCellANNService:
             "rank_source_index": row_index,
             "distance": distance,
             "cell_id": row.get("cell_id", ""),
+            "dataset_id": row.get("dataset_id", ""),
+            "dataset_name": row.get("dataset_name", ""),
+            "dataset_group": row.get("dataset_group", ""),
             "cell_type": row.get("cell_type", ""),
             "disease": row.get("disease", ""),
             "expression": {
@@ -272,6 +306,19 @@ class SingleCellANNService:
             if str(row.get(key, "")).lower() != str(expected).lower():
                 return False
         return True
+
+    def _numpy_search(self, query_vector: Any, k: int) -> Tuple[Any, Any]:
+        import numpy as np
+
+        diff = self.vectors.astype("float32") - query_vector.astype("float32")
+        distances = np.sum(diff * diff, axis=1)
+        candidate_count = min(k, len(distances))
+        if candidate_count == len(distances):
+            order = np.argsort(distances)
+        else:
+            partial = np.argpartition(distances, candidate_count - 1)[:candidate_count]
+            order = partial[np.argsort(distances[partial])]
+        return distances[order].reshape(1, -1), order.astype(np.int64).reshape(1, -1)
 
     @staticmethod
     def _to_number(value: Optional[str]) -> Optional[float]:

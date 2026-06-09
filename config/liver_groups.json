@@ -1,0 +1,34 @@
+{
+  "groups": {
+    "regular": {
+      "label": "常规数据集",
+      "description": "General reference datasets used as the baseline retrieval corpus."
+    },
+    "liver_disease": {
+      "label": "肝病专题数据集",
+      "description": "Disease-focused liver datasets, including hepatitis, cirrhosis, fibrosis, liver cancer, and related labels."
+    },
+    "joint": {
+      "label": "联合检索数据集",
+      "description": "Merged vector indexes built from two or more registered datasets."
+    }
+  },
+  "recommended_liver_tags": [
+    "liver",
+    "hepatitis",
+    "cirrhosis",
+    "fibrosis",
+    "hcc",
+    "cholestasis",
+    "steatosis"
+  ],
+  "metadata_fields_used_for_filtering": [
+    "dataset_id",
+    "dataset_name",
+    "dataset_group",
+    "dataset_source",
+    "cell_type",
+    "disease",
+    "tissue"
+  ]
+}

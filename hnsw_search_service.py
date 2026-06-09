@@ -10,6 +10,10 @@ from hnsw_index import HNSWIndex
 
 DEFAULT_FIELDS = [
     "cell_id",
+    "dataset_id",
+    "dataset_name",
+    "dataset_group",
+    "dataset_source",
     "cell_type",
     "author_cell_type",
     "disease",
@@ -49,6 +53,24 @@ class HNSWSearchService:
         self.dimension: Optional[int] = None
         self._load_attempted = False
         self._load_error: Optional[str] = None
+
+    def configure_paths(
+        self,
+        *,
+        index_path: str,
+        vectors_path: str,
+        metadata_path: str,
+    ) -> None:
+        self.index_path = index_path
+        self.vectors_path = vectors_path
+        self.metadata_path = metadata_path
+        self.index = None
+        self.vectors = None
+        self.metadata = []
+        self.cell_id_to_row = {}
+        self.dimension = None
+        self._load_attempted = False
+        self._load_error = None
 
     def load(self) -> None:
         """Load the HNSW index, PCA vectors and metadata into the service."""
@@ -212,6 +234,9 @@ class HNSWSearchService:
             "rank_source_index": row_index,
             "distance": distance,
             "cell_id": row.get("cell_id", ""),
+            "dataset_id": row.get("dataset_id", ""),
+            "dataset_name": row.get("dataset_name", ""),
+            "dataset_group": row.get("dataset_group", ""),
             "cell_type": row.get("cell_type", ""),
             "disease": row.get("disease", ""),
             "expression": {
