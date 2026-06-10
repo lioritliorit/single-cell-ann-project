@@ -63,76 +63,16 @@
   - `save_index(file_path)`：保存索引到文件
   - `load_index(file_path)` [静态]：从文件加载索引
 
-### 2.3 hnsw_index.py - HNSW算法实现
-本项目实现了 **HNSW（Hierarchical Navigable Small Worlds）** 算法，这是一种基于图结构的近似最近邻搜索算法。
+### 2.4 核心模块说明
 
-核心类：
-- **`HNSWIndex`**：HNSW索引类
-  - `build_index(vectors)`：构建HNSW索引
-  - `search(query_vectors, k, ef)`：执行近似最近邻搜索
-  - `save_index(file_path)`：保存索引到文件（紧凑2D数组格式）
-  - `load_index(file_path)` [静态]：从文件加载索引
+本项目核心模块概述：
 
-核心参数：
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| `M` | 16 | 每层最大连接数 |
-| `M0` | 32 | 底层最大连接数（默认2*M） |
-| `efConstruction` | 200 | 构建时的搜索范围 |
-| `ef` | 200 | 查询时的搜索范围 |
-
-**实现优化**（相对基础HNSW的改进）：
-
-1. **多样化邻居选择**：实现了HNSW论文 Algorithm 4 的启发式多样化选择。候选节点只有满足"到查询点的距离 < 到任意已选节点的距离"时才被加入，避免图变成星型结构，提升召回率
-2. **完整的搜索层下降**：从 `max_layer` 开始逐层下降，不硬限制起始层数，保证大数据集下的粗粒度导航效果
-3. **布尔数组 visited**：使用 numpy `bool[]` 替代 Python `set()` 记录已访问节点，大幅提升大 ef 下的搜索性能
-4. **紧凑索引存储**：每层邻接表编码为单个2D NumPy数组（-1填充），替代逐节点逐层的NPZ键存储；
-   索引文件从约 94MB 缩小至约 20MB（4.7 倍），保存/加载速度显著提升
-
-### 2.4 hnsw_search_service.py - HNSW搜索服务
-Top-K搜索封装服务，调用已构建的HNSW索引。
-
-核心类：
-- **`HNSWSearchService`**：HNSW搜索服务类
-  - `load()`：加载HNSW索引、PCA向量和元数据
-  - `status()`：获取索引状态（含M、ef、efConstruction等HNSW特有参数）
-  - `search(cell_id, vector, k, nprobe, include_self, filters)`：搜索Top-K相似细胞
-    - HNSW忽略nprobe参数，在响应中通过 `warnings` 字段提示
-
-**`_ensure_loaded` 失败恢复机制**：记录加载尝试状态和错误信息，首次加载失败后直接抛出明确异常，避免静默重试造成混淆。
-
-### 2.5 performance_evaluator.py - 性能评测模块
-对比自实现HNSW与FAISS的召回率、查询时间、内存占用。
-
-核心类：
-- **`PerformanceEvaluator`**：性能评测类
-  - `evaluate_faiss_flat()`：评测FAISS Flat索引（精确搜索，作为baseline）
-  - `evaluate_faiss_ivfflat()`：评测FAISS IVFFlat索引
-  - `evaluate_faiss_hnsw()`：评测FAISS HNSW索引
-  - `evaluate_hnsw()`：评测自实现HNSW索引
-  - `compute_recalls()`：计算所有方法相对于精确搜索的召回率
-  - `generate_report()`：生成性能评测报告
-  - `run_full_evaluation()`：运行完整的性能评测
-
-### 2.6 ann_search_service.py - ANN搜索服务
-Top-K搜索封装服务，调用已构建的FAISS ANN索引。
-
-核心类：
-- **`SingleCellANNService`**：单细胞ANN服务类
-  - `load()`：加载FAISS索引、PCA向量和元数据
-  - `status()`：获取索引状态
-  - `get_cell(cell_id)`：获取单个细胞信息
-  - `search(cell_id, vector, k, nprobe, include_self, filters)`：搜索Top-K相似细胞
-
-### 2.7 app.py - Flask后端API
-提供REST API接口和前端展示页面。
-
-**多搜索引擎支持**：内置FAISS和HNSW两个检索服务，通过线程安全的 `threading.Lock()` 保护索引切换操作，避免并发竞态。
-
-**改进特性**：
-- 健康检查（`/api/health`）返回当前活跃搜索引擎类型
-- `FileNotFoundError` 返回 404 而非 500
-- 搜索响应包含 `index_type` 和引擎特定信息
+- `data_loader.py`：读取 h5ad，导出细胞元数据、PCA 向量和统计信息。
+- `vector_processor.py`：数据校验、清洗、FAISS 索引构建与保存。
+- `hnsw_index.py`：自实现 HNSW 索引与近似搜索。
+- `performance_evaluator.py`：FAISS 与 HNSW 性能对比，生成检索报告。
+- `app.py`：Flask API 服务，提供检索、索引状态、索引切换、健康检查。
+- `scripts/dataset_analysis.py`：生成 PCA/UMAP/TSNE 可视化 CSV，并输出多数据集评估报告。
 
 ---
 
@@ -217,6 +157,58 @@ distances, indices = index_builder.search(query_vectors, k=10)
 ```python
 from hnsw_index import HNSWIndex
 import numpy as np
+```
+
+### 4.5 数据集可视化与性能评估
+
+项目新增脚本 `scripts/dataset_analysis.py`，用于生成数据集可视化坐标文件和执行多场景性能评测。
+
+```bash
+python scripts/dataset_analysis.py generate-viz --all
+python scripts/dataset_analysis.py evaluate --all
+python scripts/dataset_analysis.py dynamic-check
+```
+
+输出结果文件：
+- `docs/performance_report.md`
+- `docs/performance_evaluation_summary.json`
+- 各数据集的 `datasets/processed/<dataset_id>/pca_coords.csv`
+- 各数据集的 `datasets/processed/<dataset_id>/umap_coords.csv`
+- 各数据集的 `datasets/processed/<dataset_id>/tsne_coords.csv`（若 scikit-learn 可用）
+- 联合数据集的 `datasets/joint/<joint_id>/pca_coords.csv`
+- 联合数据集的 `datasets/joint/<joint_id>/umap_coords.csv`
+- 联合数据集的 `datasets/joint/<joint_id>/tsne_coords.csv`
+
+### 4.6 前端数据接口示例
+
+前端可以直接读取 `datasets` 目录下生成的 CSV 文件，推荐的路径模式如下：
+
+```text
+datasets/processed/<dataset_id>/pca_coords.csv
+datasets/processed/<dataset_id>/umap_coords.csv
+datasets/processed/<dataset_id>/tsne_coords.csv
+```
+
+联合数据集路径示例：
+
+```text
+datasets/joint/<joint_id>/pca_coords.csv
+datasets/joint/<joint_id>/umap_coords.csv
+datasets/joint/<joint_id>/tsne_coords.csv
+```
+
+### 4.7 前端展示说明
+
+- 直接读取最新 CSV 文件，保证前端数据显示与当前可视化结果一致。
+- CSV 字段包括 `cell_id`、`cell_type`、`disease`、`dataset_group`、`dataset_source`，以及 `pc1`/`pc2`、`umap1`/`umap2`、`tsne1`/`tsne2`。
+- 可按 `cell_type` 或 `dataset_group` 进行颜色编码，按 `disease` 进行筛选。
+- 如果希望前端在网页中直接访问，可将 `datasets/processed` 和 `datasets/joint` 目录作为静态资源目录，或在后端增加静态文件服务。
+
+### 4.8 HNSW使用示例
+
+```python
+from hnsw_index import HNSWIndex
+import numpy as np
 
 # 加载向量数据
 vectors = np.load("cleaned_pca_vectors.npy")
@@ -234,13 +226,13 @@ hnsw.save_index("hnsw_index.npz")
 hnsw = HNSWIndex.load_index("hnsw_index.npz")
 ```
 
-### 4.5 运行性能评测
+### 4.9 运行性能评测
 
 ```bash
 python performance_evaluator.py
 ```
 
-### 4.6 启动后端API服务
+### 4.10 启动后端API服务
 
 ```bash
 python app.py
@@ -258,7 +250,7 @@ ANN_VECTORS_PATH=cleaned_pca_vectors.npy
 ANN_METADATA_PATH=cleaned_cell_metadata.csv
 ```
 
-### 4.7 本地测试API
+### 4.11 本地测试API
 
 ```bash
 python test_search_api.py

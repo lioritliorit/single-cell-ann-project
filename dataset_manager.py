@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
 import numpy as np
+import pandas as pd
 
 
 class DatasetError(RuntimeError):
@@ -96,6 +97,10 @@ class DatasetManager:
         manifest["active_dataset_id"] = manifest.get("active_dataset_id") or "default"
         manifest["updated_at"] = self._now()
         self._write_manifest(manifest)
+        try:
+            self.generate_visualization_data("default")
+        except DatasetError:
+            pass
 
     def list_datasets(self) -> Dict[str, Any]:
         manifest = self._read_manifest()
@@ -247,6 +252,11 @@ class DatasetManager:
         np.save(vectors_path, merged_vectors)
         self._write_metadata(metadata_path, rows, fieldnames)
         self._build_faiss_index(merged_vectors, index_path)
+        pca_coords_path, umap_coords_path, tsne_coords_path = self._write_visualization_files(
+            merged_vectors,
+            pd.DataFrame(rows),
+            out_dir,
+        )
 
         summary = self._summarize_metadata(str(metadata_path))
         dataset = {
@@ -262,6 +272,9 @@ class DatasetManager:
             "vectors_path": str(vectors_path),
             "metadata_path": str(metadata_path),
             "faiss_index_path": str(index_path),
+            "pca_coords_path": str(pca_coords_path),
+            "umap_coords_path": str(umap_coords_path),
+            "tsne_coords_path": str(tsne_coords_path),
             "hnsw_index_path": None,
             "cell_count": int(merged_vectors.shape[0]),
             "dimension": int(merged_vectors.shape[1]),
@@ -314,6 +327,7 @@ class DatasetManager:
         np.save(vectors_path, vectors.astype(np.float32))
         metadata.to_csv(metadata_path, index=False, encoding="utf-8-sig")
         self._build_faiss_index(vectors, index_path)
+        pca_coords_path, umap_coords_path, tsne_coords_path = self._write_visualization_files(vectors, metadata, out_dir)
 
         summary = self._summarize_metadata(str(metadata_path))
         disease_tags = [f"liver:{d}" for d in summary["diseases"] if "liver" in d.lower() or "hep" in d.lower()]
@@ -332,6 +346,9 @@ class DatasetManager:
             "vectors_path": str(vectors_path),
             "metadata_path": str(metadata_path),
             "faiss_index_path": str(index_path),
+            "pca_coords_path": str(pca_coords_path),
+            "umap_coords_path": str(umap_coords_path),
+            "tsne_coords_path": str(tsne_coords_path),
             "hnsw_index_path": None,
             "cell_count": int(vectors.shape[0]),
             "dimension": int(vectors.shape[1]),
@@ -365,6 +382,106 @@ class DatasetManager:
         index = faiss.IndexFlatL2(int(vectors.shape[1]))
         index.add(vectors.astype(np.float32))
         faiss.write_index(index, str(index_path))
+
+    def generate_visualization_data(self, dataset_id: str) -> Dict[str, str]:
+        dataset = self.get_dataset(dataset_id)
+        vectors = np.load(dataset["vectors_path"]).astype(np.float32)
+        metadata = pd.read_csv(dataset["metadata_path"], encoding="utf-8-sig", low_memory=False)
+        out_dir = self._dataset_directory(dataset)
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        pca_path, umap_path, tsne_path = self._write_visualization_files(vectors, metadata, out_dir)
+        manifest = self._read_manifest()
+        if dataset_id in manifest.get("datasets", {}):
+            manifest["datasets"][dataset_id]["pca_coords_path"] = str(pca_path)
+            manifest["datasets"][dataset_id]["umap_coords_path"] = str(umap_path)
+            manifest["datasets"][dataset_id]["tsne_coords_path"] = str(tsne_path)
+            manifest["updated_at"] = self._now()
+            self._write_manifest(manifest)
+
+        return {
+            "pca_coords_path": str(pca_path),
+            "umap_coords_path": str(umap_path),
+            "tsne_coords_path": str(tsne_path),
+        }
+
+    def _dataset_directory(self, dataset: Dict[str, Any]) -> Path:
+        if dataset.get("kind") == "joint":
+            return self.joint_dir / dataset["id"]
+        return self.processed_dir / dataset["id"]
+
+    @staticmethod
+    def _write_visualization_files(vectors: np.ndarray, metadata: pd.DataFrame, out_dir: Path) -> tuple[Path, Path, Path]:
+        if vectors.ndim != 2:
+            raise DatasetError("Visualization data requires 2D or higher vectors")
+
+        pca_coords = vectors[:, :2] if vectors.shape[1] >= 2 else np.concatenate([vectors, np.zeros((vectors.shape[0], 1), dtype=np.float32)], axis=1)
+        pca_df = metadata.copy()
+        pca_df = pca_df.reset_index(drop=True)
+        pca_df["pc1"] = pca_coords[:, 0].astype(float)
+        pca_df["pc2"] = pca_coords[:, 1].astype(float)
+        pca_path = out_dir / "pca_coords.csv"
+        pca_df.to_csv(pca_path, index=False, encoding="utf-8-sig")
+
+        try:
+            import umap
+        except ImportError as exc:
+            raise DatasetError("Install umap-learn to generate UMAP visualization data") from exc
+
+        max_umap_samples = 5000
+        sample_indices = np.arange(len(vectors))
+        sample_vectors = vectors
+        if len(vectors) > max_umap_samples:
+            rng = np.random.default_rng(42)
+            sample_indices = rng.choice(len(vectors), size=max_umap_samples, replace=False)
+            sample_vectors = vectors[sample_indices]
+
+        n_neighbors = min(15, max(2, len(sample_vectors) - 1))
+        reducer = umap.UMAP(
+            n_components=2,
+            random_state=42,
+            n_neighbors=n_neighbors,
+            min_dist=0.1,
+            init="spectral",
+        )
+        umap_df = metadata.copy().reset_index(drop=True)
+        umap_df["umap1"] = np.nan
+        umap_df["umap2"] = np.nan
+        umap_path = out_dir / "umap_coords.csv"
+
+        try:
+            umap_coords = reducer.fit_transform(sample_vectors)
+            umap_df.iloc[sample_indices, umap_df.columns.get_loc("umap1")] = umap_coords[:, 0].astype(float)
+            umap_df.iloc[sample_indices, umap_df.columns.get_loc("umap2")] = umap_coords[:, 1].astype(float)
+        except Exception:
+            umap_df["umap1"] = pca_coords[:, 0].astype(float)
+            umap_df["umap2"] = pca_coords[:, 1].astype(float)
+
+        umap_df.to_csv(umap_path, index=False, encoding="utf-8-sig")
+
+        tsne_path = out_dir / "tsne_coords.csv"
+        try:
+            from sklearn.manifold import TSNE
+
+            max_tsne_samples = 2000
+            tsne_indices = np.arange(len(vectors))
+            tsne_vectors = vectors
+            if len(vectors) > max_tsne_samples:
+                rng = np.random.default_rng(42)
+                tsne_indices = rng.choice(len(vectors), size=max_tsne_samples, replace=False)
+                tsne_vectors = vectors[tsne_indices]
+
+            tsne_model = TSNE(n_components=2, random_state=42, n_iter=500, init="pca", method="barnes_hut")
+            tsne_coords = tsne_model.fit_transform(tsne_vectors)
+            tsne_df = metadata.iloc[tsne_indices].reset_index(drop=True)
+            tsne_df["tsne1"] = tsne_coords[:, 0].astype(float)
+            tsne_df["tsne2"] = tsne_coords[:, 1].astype(float)
+            tsne_df.to_csv(tsne_path, index=False, encoding="utf-8-sig")
+        except Exception:
+            tsne_path = out_dir / "tsne_coords.csv"
+            metadata.assign(tsne1=np.nan, tsne2=np.nan).to_csv(tsne_path, index=False, encoding="utf-8-sig")
+
+        return pca_path, umap_path, tsne_path
 
     @staticmethod
     def _summarize_metadata(metadata_path: str) -> Dict[str, Any]:

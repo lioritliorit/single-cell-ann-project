@@ -50,7 +50,10 @@
       ],
       "component_dataset_ids": [
         "default"
-      ]
+      ],
+      "pca_coords_path": "datasets\\processed\\default\\pca_coords.csv",
+      "umap_coords_path": "datasets\\processed\\default\\umap_coords.csv",
+      "tsne_coords_path": "datasets\\processed\\default\\tsne_coords.csv"
     },
     "ds-liver": {
       "id": "ds-liver",
@@ -90,6 +93,10 @@
         "unknown"
       ],
       "diseases": [
+        "cirrhosis",
+        "fibrosis",
+        "hcc",
+        "hepatitis",
         "normal"
       ],
       "tissues": [
@@ -101,7 +108,10 @@
       ],
       "component_dataset_ids": [
         "ds-liver"
-      ]
+      ],
+      "pca_coords_path": "datasets\\processed\\ds-liver\\pca_coords.csv",
+      "umap_coords_path": "datasets\\processed\\ds-liver\\umap_coords.csv",
+      "tsne_coords_path": "datasets\\processed\\ds-liver\\tsne_coords.csv"
     },
     "joint-default-ds-liver": {
       "id": "joint-default-ds-liver",
@@ -111,7 +121,7 @@
       "source": "project bundled files + GEO",
       "description": "Web UI generated joint index",
       "created_at": "2026-06-09T15:28:36Z",
-      "updated_at": "2026-06-09T15:28:36Z",
+      "updated_at": "2026-06-10T07:31:48Z",
       "h5ad_path": null,
       "vectors_path": "datasets\\joint\\joint-default-ds-liver\\vectors.npy",
       "metadata_path": "datasets\\joint\\joint-default-ds-liver\\metadata.csv",
@@ -141,6 +151,10 @@
         "unknown"
       ],
       "diseases": [
+        "cirrhosis",
+        "fibrosis",
+        "hcc",
+        "hepatitis",
         "normal"
       ],
       "tissues": [
@@ -154,8 +168,11 @@
       "component_dataset_ids": [
         "default",
         "ds-liver"
-      ]
+      ],
+      "pca_coords_path": "datasets\\joint\\joint-default-ds-liver\\pca_coords.csv",
+      "umap_coords_path": "datasets\\joint\\joint-default-ds-liver\\umap_coords.csv",
+      "tsne_coords_path": "datasets\\joint\\joint-default-ds-liver\\tsne_coords.csv"
     }
   },
-  "updated_at": "2026-06-09T15:28:36Z"
+  "updated_at": "2026-06-10T09:11:35Z"
 }

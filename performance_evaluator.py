@@ -350,7 +350,79 @@ class PerformanceEvaluator:
         
         self.results['faiss_hnsw'] = result
         return result
-    
+
+    def evaluate_faiss_ivfpq(self, nlist: int = 100, m: int = 8, nbits: int = 8, nprobe: int = 10, k: int = 10) -> Dict[str, Any]:
+        """
+        评测FAISS IVFPQ索引
+
+        Args:
+            nlist: IVF分桶数
+            m: PQ子向量数量
+            nbits: 子向量比特数
+            nprobe: 搜索探针数
+            k: 返回最近邻数量
+
+        Returns:
+            评测结果字典
+        """
+        print(f"\n{'='*60}")
+        print(f"评测FAISS IVFPQ (nlist={nlist}, m={m}, nbits={nbits}, nprobe={nprobe})")
+        print(f"{'='*60}")
+
+        try:
+            import faiss
+        except ImportError:
+            print("FAISS未安装，跳过此测试")
+            return None
+
+        result = {
+            'method': f'FAISS_IVFPQ (nlist={nlist}, m={m}, nbits={nbits})',
+            'params': {'nlist': nlist, 'm': m, 'nbits': nbits, 'nprobe': nprobe},
+            'build_time': 0.0,
+            'search_time': 0.0,
+            'memory_mb': 0.0,
+            'recall': 0.0,
+            'precision': 0.0,
+            'indices': None
+        }
+
+        mem_before = self._get_memory_usage()
+        vectors_f32 = self.vectors.astype(np.float32)
+        d = vectors_f32.shape[1]
+        valid_m = next((x for x in range(min(m, d), 0, -1) if d % x == 0), 1)
+        if valid_m != m:
+            print(f"警告：输入的 m={m} 与向量维度 d={d} 不兼容，改为 m={valid_m}。")
+            m = valid_m
+            result['method'] = f'FAISS_IVFPQ (nlist={nlist}, m={m}, nbits={nbits})'
+            result['params']['m'] = m
+
+        start_time = time.time()
+        quantizer = faiss.IndexFlatL2(d)
+        index = faiss.IndexIVFPQ(quantizer, d, nlist, m, nbits)
+        index.train(vectors_f32)
+        index.add(vectors_f32)
+        build_time = time.time() - start_time
+
+        mem_after = self._get_memory_usage()
+
+        index.nprobe = nprobe
+        queries_f32 = self.queries.astype(np.float32)
+        start_time = time.time()
+        distances, indices = index.search(queries_f32, k)
+        search_time = time.time() - start_time
+
+        result['build_time'] = build_time
+        result['search_time'] = search_time
+        result['memory_mb'] = mem_after - mem_before
+        result['indices'] = indices
+
+        print(f"构建时间: {build_time:.4f}s")
+        print(f"搜索时间: {search_time:.4f}s")
+        print(f"内存占用: {result['memory_mb']:.2f} MB")
+
+        self.results['faiss_ivfpq'] = result
+        return result
+
     def compute_recalls(self, k: int = 10):
         """
         计算所有方法相对于精确搜索的召回率

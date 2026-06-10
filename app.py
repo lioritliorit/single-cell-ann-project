@@ -1,5 +1,6 @@
 import os
 import threading
+from pathlib import Path
 from typing import Any, Dict
 
 import numpy as np
@@ -228,6 +229,29 @@ def create_app() -> Flask:
         if viz_cache.get("dataset_id") == cache_key:
             return jsonify(viz_cache["data"])
 
+        viz_dir = Path(dataset["vectors_path"]).parent
+        pca_file = viz_dir / "pca_coords.csv"
+        umap_file = viz_dir / "umap_coords.csv"
+
+        if pca_file.exists():
+            import csv
+            pca_points = []
+            type_counts: Dict[str, int] = {}
+            with open(pca_file, encoding="utf-8-sig", newline="") as f:
+                for row in csv.DictReader(f):
+                    pca_points.append({
+                        "pc1": float(row.get("pc1", 0.0)),
+                        "pc2": float(row.get("pc2", 0.0)),
+                        "cell_type": row.get("cell_type", "unknown") or "unknown",
+                        "dataset_id": row.get("dataset_id", ""),
+                        "dataset_group": row.get("dataset_group", ""),
+                    })
+                    ct = row.get("cell_type", "unknown").strip() or "unknown"
+                    type_counts[ct] = type_counts.get(ct, 0) + 1
+            data = {"pca_points": pca_points, "cell_type_counts": [{"cell_type": k, "count": v} for k, v in type_counts.items()]}
+            viz_cache = {"dataset_id": cache_key, "data": data}
+            return jsonify(data)
+
         meta_path = dataset["metadata_path"]
         vec_path = dataset["vectors_path"]
 
@@ -286,6 +310,15 @@ def create_app() -> Flask:
         result["index_type"] = engine
         result["dataset"] = dataset_manager.get_active_dataset()
         return jsonify(result)
+
+    @app.get("/api/evaluation-data")
+    def evaluation_data():
+        eval_file = Path("docs/performance_evaluation_summary.json")
+        if eval_file.exists():
+            import json
+            with open(eval_file, encoding="utf-8") as f:
+                return jsonify(json.load(f))
+        return jsonify({"datasets": []})
 
     @app.errorhandler(SearchInputError)
     def handle_search_input_error(error: SearchInputError):
