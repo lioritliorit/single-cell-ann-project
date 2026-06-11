@@ -12,7 +12,9 @@ const $ = (id) => document.getElementById(id);
 const searchForm = $("search-form");
 const cellIdInput = $("cell-id-input");
 const kInput = $("k-input");
+const searchModeSelect = $("search-mode-select");
 const filterCellType = $("filter-cell-type");
+const filterDisease = $("filter-disease");
 const filterDatasetGroup = $("filter-dataset-group");
 const searchBtn = $("search-btn");
 const loading = $("loading");
@@ -20,6 +22,11 @@ const queryInfo = $("query-info");
 const queryTime = $("query-time");
 const queryCount = $("query-count");
 const queryCellId = $("query-cell-id");
+const filterStats = $("filter-stats");
+const statsTotal = $("stats-total");
+const statsFiltered = $("stats-filtered");
+const statsRatio = $("stats-ratio");
+const statsMode = $("stats-mode");
 const resultsContainer = $("results-container");
 const resultsBody = $("results-body");
 const errorMsg = $("error-msg");
@@ -329,6 +336,21 @@ async function loadCellTypes() {
     } catch (err) {
         console.warn("Failed to load cell types:", err);
     }
+
+    // 同时加载疾病类型
+    try {
+        const data = await apiGet("/api/disease-types");
+        const types = data.disease_types || [];
+        filterDisease.innerHTML = `<option value="">全部状态</option>`;
+        types.forEach((dt) => {
+            const opt = document.createElement("option");
+            opt.value = dt;
+            opt.textContent = dt;
+            filterDisease.appendChild(opt);
+        });
+    } catch (err) {
+        console.warn("Failed to load disease types:", err);
+    }
 }
 
 async function loadVisualizationData() {
@@ -458,15 +480,18 @@ searchForm.addEventListener("submit", async (event) => {
     hideError();
     resultsContainer.style.display = "none";
     queryInfo.style.display = "none";
+    filterStats.style.display = "none";
     loading.style.display = "block";
     searchBtn.disabled = true;
 
     try {
         const filters = {};
         if (filterCellType.value) filters.cell_type = filterCellType.value;
+        if (filterDisease.value) filters.disease = filterDisease.value;
         if (filterDatasetGroup.value) filters.dataset_group = filterDatasetGroup.value;
 
-        const payload = { cell_id: cellId, k };
+        const searchMode = searchModeSelect.value || "normal";
+        const payload = { cell_id: cellId, k, search_mode: searchMode };
         if (Object.keys(filters).length) payload.filters = filters;
         const data = await apiPost("/api/search", payload);
 
@@ -475,6 +500,16 @@ searchForm.addEventListener("submit", async (event) => {
         queryCellId.textContent = cellId;
         $("engine-info").textContent = `${(data.index_type || "?").toUpperCase()} / ${data.dataset?.name || ""}`;
         queryInfo.style.display = "block";
+
+        // 显示过滤统计
+        if (data.filter_stats) {
+            const fs = data.filter_stats;
+            statsTotal.textContent = formatNumber(fs.total_cells || 0);
+            statsFiltered.textContent = formatNumber(fs.filtered_cells || 0);
+            statsRatio.textContent = ((fs.filter_ratio || 0) * 100).toFixed(1) + "%";
+            statsMode.textContent = fs.mode || data.search_mode || "-";
+            filterStats.style.display = "block";
+        }
 
         renderWarnings(data.warnings || []);
         renderResults(data.results || []);
@@ -550,6 +585,7 @@ function highlightQueryCell(data) {
 
 function clearSearchResults() {
     queryInfo.style.display = "none";
+    filterStats.style.display = "none";
     resultsContainer.style.display = "none";
     hideError();
 }

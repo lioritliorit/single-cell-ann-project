@@ -1,5 +1,8 @@
+import json
+import logging
 import os
 import threading
+import time
 from pathlib import Path
 from typing import Any, Dict
 
@@ -9,6 +12,37 @@ from flask import Flask, jsonify, render_template, request
 from ann_search_service import SearchInputError, SingleCellANNService
 from dataset_manager import DatasetError, DatasetManager
 from hnsw_search_service import HNSWSearchService
+
+# ---- 检索调试日志 ----
+_search_logger = logging.getLogger("search_debug")
+_search_logger.setLevel(logging.DEBUG)
+_search_log_handler = logging.FileHandler(
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "docs", "search_debug.log"),
+    encoding="utf-8",
+)
+_search_log_handler.setFormatter(logging.Formatter(
+    "%(asctime)s | %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+))
+_search_logger.addHandler(_search_log_handler)
+_search_logger.propagate = False
+
+
+def _log_search(mode: str, dataset_id: str, engine: str, elapsed: float,
+                k: int, result_count: int, filters: Dict[str, str],
+                filter_stats: Dict[str, Any]) -> None:
+    """记录每次检索请求的关键参数，作为跨库检索调试日志。"""
+    _search_logger.debug(
+        json.dumps({
+            "mode": mode,
+            "dataset_id": dataset_id,
+            "engine": engine,
+            "elapsed_ms": elapsed,
+            "k": k,
+            "result_count": result_count,
+            "filters": filters,
+            "filter_stats": filter_stats,
+        }, ensure_ascii=False)
+    )
 
 
 def create_app() -> Flask:
@@ -221,6 +255,21 @@ def create_app() -> Flask:
                     types.add(ct)
         return jsonify({"cell_types": sorted(types)})
 
+    @app.get("/api/disease-types")
+    def list_disease_types():
+        """返回当前数据集中所有疾病/状态标签。"""
+        meta_path = dataset_manager.get_active_dataset()["metadata_path"]
+        if not os.path.exists(meta_path):
+            return jsonify({"disease_types": []})
+        import csv
+        types = set()
+        with open(meta_path, encoding="utf-8-sig", newline="") as f:
+            for row in csv.DictReader(f):
+                disease = row.get("disease", "").strip()
+                if disease:
+                    types.add(disease)
+        return jsonify({"disease_types": sorted(types)})
+
     @app.get("/api/visualization-data")
     def visualization_data():
         nonlocal viz_cache
@@ -295,20 +344,66 @@ def create_app() -> Flask:
     @app.post("/api/search")
     def search():
         payload: Dict[str, Any] = request.get_json(silent=True) or {}
+
+        search_mode = (payload.get("search_mode") or "normal").lower()
+        filters: Dict[str, str] = payload.get("filters") or {}
+
+        # 也支持顶层 disease 字段（等效 filters.disease）
+        if payload.get("disease") and "disease" not in filters:
+            filters["disease"] = payload["disease"]
+        # cell_type 简写
+        if payload.get("cell_type") and "cell_type" not in filters:
+            filters["cell_type"] = payload["cell_type"]
+
         with index_lock:
             service = get_search_service()
             engine = current_index_type
 
-        result = service.search(
-            cell_id=payload.get("cell_id"),
-            vector=payload.get("vector"),
-            k=payload.get("k", 10),
-            nprobe=payload.get("nprobe"),
-            include_self=bool(payload.get("include_self", False)),
-            filters=payload.get("filters") or {},
-        )
+        # 条件检索 / 跨库检索模式
+        if search_mode in ("conditional", "cross_dataset") and filters:
+            result = service.search_conditional(
+                cell_id=payload.get("cell_id"),
+                vector=payload.get("vector"),
+                k=payload.get("k", 10),
+                filters=filters,
+                include_self=bool(payload.get("include_self", False)),
+            )
+            # 跨库模式下额外标注来源分布
+            if search_mode == "cross_dataset":
+                source_counts: Dict[str, int] = {}
+                for r in result.get("results", []):
+                    ds = r.get("dataset_name", "unknown") or "unknown"
+                    source_counts[ds] = source_counts.get(ds, 0) + 1
+                result.setdefault("filter_stats", {})
+                result["filter_stats"]["source_distribution"] = source_counts
+                result["filter_stats"]["mode"] = "cross_dataset"
+        else:
+            result = service.search(
+                cell_id=payload.get("cell_id"),
+                vector=payload.get("vector"),
+                k=payload.get("k", 10),
+                nprobe=payload.get("nprobe"),
+                include_self=bool(payload.get("include_self", False)),
+                filters=filters,
+            )
+
         result["index_type"] = engine
+        result["search_mode"] = search_mode
         result["dataset"] = dataset_manager.get_active_dataset()
+
+        # 写入跨库检索调试日志
+        os.makedirs(os.path.join(os.path.dirname(os.path.abspath(__file__)), "docs"), exist_ok=True)
+        _log_search(
+            mode=search_mode,
+            dataset_id=dataset_manager.get_active_dataset().get("id", "?"),
+            engine=engine,
+            elapsed=result.get("elapsed_ms", 0),
+            k=payload.get("k", 10),
+            result_count=result.get("result_count", 0),
+            filters=filters,
+            filter_stats=result.get("filter_stats", {}),
+        )
+
         return jsonify(result)
 
     @app.get("/api/evaluation-data")

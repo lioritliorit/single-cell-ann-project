@@ -281,6 +281,107 @@ class HNSWSearchService:
                 return False
         return True
 
+    # ---- 预过滤搜索（条件检索核心） ----
+
+    def build_filter_mask(self, filters: Dict[str, str]) -> np.ndarray:
+        """根据过滤条件生成布尔掩码。True = 该行满足所有条件。"""
+        n = len(self.metadata)
+        mask = np.ones(n, dtype=bool)
+        if not filters:
+            return mask
+        for col, expected in filters.items():
+            expected_lower = str(expected).lower()
+            col_mask = np.zeros(n, dtype=bool)
+            for i, row in enumerate(self.metadata):
+                if str(row.get(col, "")).lower() == expected_lower:
+                    col_mask[i] = True
+            mask &= col_mask
+            if not mask.any():
+                break
+        return mask
+
+    def search_conditional(
+        self,
+        *,
+        cell_id: Optional[str] = None,
+        vector: Optional[List[float]] = None,
+        k: int = 10,
+        filters: Optional[Dict[str, str]] = None,
+        nprobe: Optional[int] = None,
+        include_self: bool = False,
+    ) -> Dict[str, Any]:
+        """条件检索（HNSW 版）：HNSW 不支持临时子索引，使用掩码 + 精确 L2 搜索。"""
+        self._ensure_loaded()
+        filters = filters or {}
+        k = self._validate_k(k)
+        query_vector, query_cell_id, query_row = self._build_query(cell_id, vector)
+
+        started = time.perf_counter()
+
+        mask = self.build_filter_mask(filters)
+        mask_count = int(mask.sum())
+
+        if mask_count == 0:
+            return {
+                "query": {
+                    "cell_id": query_cell_id, "row_index": query_row,
+                    "dimension": self.dimension, "k": k,
+                    "filters": filters, "mode": "conditional", "include_self": include_self,
+                },
+                "elapsed_ms": round((time.perf_counter() - started) * 1000, 3),
+                "result_count": 0, "results": [],
+                "filter_stats": {"total_cells": len(self.metadata), "filtered_cells": 0, "filter_ratio": 0.0},
+                "engine": "hnsw",
+                "warnings": ["过滤条件未匹配到任何细胞"],
+            }
+
+        if not include_self and query_row is not None and mask[query_row]:
+            mask[query_row] = False
+            mask_count = int(mask.sum())
+
+        subset_indices = np.where(mask)[0].astype(np.int64)
+        subset_vectors = self.vectors[subset_indices].astype(np.float32)
+
+        # 精确 L2 搜索子集
+        diff = subset_vectors - query_vector.astype(np.float32)
+        distances = np.sum(diff * diff, axis=1)
+        n_top = min(k, len(distances))
+        if n_top == len(distances):
+            order = np.argsort(distances)
+        else:
+            partial = np.argpartition(distances, n_top - 1)[:n_top]
+            order = partial[np.argsort(distances[partial])]
+
+        elapsed_ms = round((time.perf_counter() - started) * 1000, 3)
+
+        results = []
+        for o in order[:k]:
+            global_idx = int(subset_indices[o])
+            results.append(self._format_result(global_idx, float(distances[o])))
+
+        return {
+            "query": {
+                "cell_id": query_cell_id, "row_index": query_row,
+                "dimension": self.dimension, "k": k,
+                "filters": filters, "mode": "conditional", "include_self": include_self,
+            },
+            "elapsed_ms": elapsed_ms,
+            "result_count": len(results),
+            "results": results,
+            "filter_stats": {
+                "total_cells": len(self.metadata),
+                "filtered_cells": mask_count,
+                "filter_ratio": mask_count / max(1, len(self.metadata)),
+            },
+            "engine": "hnsw",
+            "warnings": [
+                "nprobe参数对HNSW索引无效，已忽略",
+                "条件检索在 HNSW 上使用精确 L2 搜索 (无临时子索引)",
+            ] if nprobe is not None else [
+                "条件检索在 HNSW 上使用精确 L2 搜索 (无临时子索引)",
+            ],
+        }
+
     @staticmethod
     def _to_number(value: Optional[str]) -> Optional[float]:
         if value in (None, ""):

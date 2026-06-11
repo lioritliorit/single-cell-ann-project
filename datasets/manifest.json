@@ -1,5 +1,5 @@
 {
-  "active_dataset_id": "joint-default-ds-liver",
+  "active_dataset_id": "default",
   "datasets": {
     "default": {
       "id": "default",
@@ -174,5 +174,5 @@
       "tsne_coords_path": "datasets\\joint\\joint-default-ds-liver\\tsne_coords.csv"
     }
   },
-  "updated_at": "2026-06-10T09:11:35Z"
+  "updated_at": "2026-06-11T05:53:20Z"
 }

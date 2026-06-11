@@ -129,10 +129,31 @@
                             <label for="k-input"><i class="fas fa-list-ol"></i> Top-K</label>
                             <input type="number" id="k-input" class="form-control" value="10" min="1" max="100">
                         </div>
+                        <div class="form-group" style="width:160px;">
+                            <label for="search-mode-select"><i class="fas fa-cog"></i> 检索模式</label>
+                            <select id="search-mode-select" class="form-control">
+                                <option value="normal">普通检索</option>
+                                <option value="conditional">条件检索</option>
+                            </select>
+                        </div>
+                        <div class="form-group form-group-btn">
+                            <label>&nbsp;</label>
+                            <button type="submit" class="btn btn-primary" id="search-btn">
+                                <i class="fas fa-search"></i> 检索
+                            </button>
+                        </div>
+                    </div>
+                    <div class="form-row filter-row">
                         <div class="form-group" style="width:200px;">
                             <label for="filter-cell-type"><i class="fas fa-filter"></i> 细胞类型</label>
                             <select id="filter-cell-type" class="form-control">
                                 <option value="">全部类型</option>
+                            </select>
+                        </div>
+                        <div class="form-group" style="width:180px;">
+                            <label for="filter-disease"><i class="fas fa-disease"></i> 疾病状态</label>
+                            <select id="filter-disease" class="form-control">
+                                <option value="">全部状态</option>
                             </select>
                         </div>
                         <div class="form-group" style="width:180px;">
@@ -143,12 +164,6 @@
                                 <option value="liver_disease">肝病</option>
                                 <option value="joint">联合</option>
                             </select>
-                        </div>
-                        <div class="form-group form-group-btn">
-                            <label>&nbsp;</label>
-                            <button type="submit" class="btn btn-primary" id="search-btn">
-                                <i class="fas fa-search"></i> 检索
-                            </button>
                         </div>
                     </div>
                 </form>
@@ -163,6 +178,17 @@
                     &nbsp;|&nbsp; <i class="fas fa-database"></i> <span id="query-count">0</span> 个结果
                     &nbsp;|&nbsp; <i class="fas fa-tag"></i> <code id="query-cell-id"></code>
                     &nbsp;|&nbsp; <i class="fas fa-microchip"></i> <span id="engine-info"></span>
+                </div>
+
+                <div id="filter-stats" class="filter-stats" style="display:none;">
+                    <i class="fas fa-filter"></i>
+                    <span>过滤前: <strong id="stats-total">0</strong> 细胞</span>
+                    &nbsp;|&nbsp;
+                    <span>过滤后: <strong id="stats-filtered">0</strong> 细胞</span>
+                    &nbsp;|&nbsp;
+                    <span>比例: <strong id="stats-ratio">0%</strong></span>
+                    &nbsp;|&nbsp;
+                    <span>模式: <code id="stats-mode">-</code></span>
                 </div>
 
                 <div id="search-warnings" style="display:none;"></div>

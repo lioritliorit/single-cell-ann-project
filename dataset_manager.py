@@ -79,6 +79,7 @@ class DatasetManager:
             "group": "regular",
             "source": "project bundled files",
             "description": "Initial dataset from cleaned_cell_metadata.csv and cleaned_pca_vectors.npy.",
+            "index_type": "flat",
             "created_at": self._now(),
             "updated_at": self._now(),
             "h5ad_path": None,
@@ -151,6 +152,7 @@ class DatasetManager:
         group: str = "regular",
         description: str = "",
         tags: Optional[Iterable[str]] = None,
+        index_type: str = "flat",
     ) -> Dict[str, Any]:
         original_name = getattr(file_storage, "filename", "") or "dataset.h5ad"
         if not original_name.lower().endswith(".h5ad"):
@@ -169,6 +171,7 @@ class DatasetManager:
                 group=group,
                 description=description,
                 tags=list(tags or []),
+                index_type=index_type,
             )
             manifest = self._read_manifest()
             manifest.setdefault("datasets", {})[dataset_id] = dataset
@@ -216,6 +219,7 @@ class DatasetManager:
         name: str = "Joint dataset",
         group: str = "joint",
         description: str = "",
+        index_type: str = "flat",
     ) -> Dict[str, Any]:
         if len(dataset_ids) < 2:
             raise DatasetError("Joint index requires at least two datasets")
@@ -251,7 +255,7 @@ class DatasetManager:
         index_path = out_dir / "faiss_index.bin"
         np.save(vectors_path, merged_vectors)
         self._write_metadata(metadata_path, rows, fieldnames)
-        self._build_faiss_index(merged_vectors, index_path)
+        self._build_faiss_index(merged_vectors, index_path, index_type=index_type)
         pca_coords_path, umap_coords_path, tsne_coords_path = self._write_visualization_files(
             merged_vectors,
             pd.DataFrame(rows),
@@ -266,6 +270,7 @@ class DatasetManager:
             "group": group,
             "source": " + ".join(item.get("source") or item["name"] for item in datasets),
             "description": description or "Joint FAISS index over selected datasets.",
+            "index_type": index_type,
             "created_at": self._now(),
             "updated_at": self._now(),
             "h5ad_path": None,
@@ -302,6 +307,7 @@ class DatasetManager:
         group: str,
         description: str,
         tags: List[str],
+        index_type: str = "flat",
     ) -> Dict[str, Any]:
         adata = self._read_h5ad(str(h5ad_path))
         if "X_pca" not in adata.obsm:
@@ -326,7 +332,7 @@ class DatasetManager:
         index_path = out_dir / "faiss_index.bin"
         np.save(vectors_path, vectors.astype(np.float32))
         metadata.to_csv(metadata_path, index=False, encoding="utf-8-sig")
-        self._build_faiss_index(vectors, index_path)
+        self._build_faiss_index(vectors, index_path, index_type=index_type)
         pca_coords_path, umap_coords_path, tsne_coords_path = self._write_visualization_files(vectors, metadata, out_dir)
 
         summary = self._summarize_metadata(str(metadata_path))
@@ -340,6 +346,7 @@ class DatasetManager:
             "group": group,
             "source": source,
             "description": description,
+            "index_type": index_type,
             "created_at": self._now(),
             "updated_at": self._now(),
             "h5ad_path": str(h5ad_path),
@@ -372,16 +379,72 @@ class DatasetManager:
                 raise DatasetError("Install scanpy or anndata to import .h5ad files") from exc
 
     @staticmethod
-    def _build_faiss_index(vectors: np.ndarray, index_path: Path) -> None:
+    def _build_faiss_index(
+        vectors: np.ndarray,
+        index_path: Path,
+        index_type: str = "flat",
+        **kwargs: Any,
+    ) -> str:
+        """构建 FAISS 索引，支持多种索引类型。
+
+        支持的 index_type:
+          - "flat":    IndexFlatL2 (精确搜索，默认)
+          - "ivfflat": IndexIVFFlat (倒排索引，需 nlist)
+          - "ivfpq":   IndexIVFPQ (乘积量化压缩，需 nlist, m, nbits)
+          - "hnsw":     IndexHNSWFlat (FAISS 内置 HNSW，需 M)
+
+        Returns 实际使用的 index_type (可能因维度兼容性而调整)。
+        """
         try:
             import faiss
         except ImportError as exc:
             raise DatasetError("Install faiss-cpu before building indexes") from exc
+
         if vectors.ndim != 2 or vectors.shape[0] == 0:
             raise DatasetError("Cannot build an index for an empty vector matrix")
-        index = faiss.IndexFlatL2(int(vectors.shape[1]))
-        index.add(vectors.astype(np.float32))
+
+        vectors_f32 = vectors.astype(np.float32)
+        d = int(vectors.shape[1])
+        actual_type = index_type
+
+        if index_type == "ivfflat":
+            nlist = kwargs.get("nlist", DatasetManager._auto_nlist(len(vectors)))
+            quantizer = faiss.IndexFlatL2(d)
+            index = faiss.IndexIVFFlat(quantizer, d, nlist)
+            index.train(vectors_f32)
+            index.add(vectors_f32)
+        elif index_type == "ivfpq":
+            nlist = kwargs.get("nlist", DatasetManager._auto_nlist(len(vectors)))
+            m = kwargs.get("m", 8)
+            nbits = kwargs.get("nbits", 8)
+            # auto-fix m when d is not divisible by m
+            valid_m = next((x for x in range(min(m, d), 0, -1) if d % x == 0), 1)
+            if valid_m != m:
+                actual_type = "ivfpq-adjusted"
+            quantizer = faiss.IndexFlatL2(d)
+            index = faiss.IndexIVFPQ(quantizer, d, nlist, valid_m, nbits)
+            index.train(vectors_f32)
+            index.add(vectors_f32)
+        elif index_type == "hnsw":
+            M = kwargs.get("M", 16)
+            index = faiss.IndexHNSWFlat(d, M)
+            index.hnsw.efConstruction = kwargs.get("efConstruction", 200)
+            ef_search = kwargs.get("ef_search", 50)
+            index.hnsw.efSearch = ef_search
+            index.add(vectors_f32)
+        else:
+            index = faiss.IndexFlatL2(d)
+            index.add(vectors_f32)
+
         faiss.write_index(index, str(index_path))
+        return actual_type
+
+    @staticmethod
+    def _auto_nlist(n_vectors: int, min_nlist: int = 4, max_nlist: int = 1024) -> int:
+        """根据向量数量自动计算 IVF 聚类数。"""
+        from math import sqrt
+        candidate = int(4 * sqrt(max(1, n_vectors)))
+        return max(min_nlist, min(max_nlist, candidate))
 
     def generate_visualization_data(self, dataset_id: str) -> Dict[str, str]:
         dataset = self.get_dataset(dataset_id)
