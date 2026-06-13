@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import csv
 import json
 import os
@@ -9,7 +11,11 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
 import numpy as np
-import pandas as pd
+
+try:
+    import pandas as pd
+except ImportError:
+    pd = None
 
 
 class DatasetError(RuntimeError):
@@ -221,6 +227,8 @@ class DatasetManager:
         description: str = "",
         index_type: str = "flat",
     ) -> Dict[str, Any]:
+        if pd is None:
+            raise DatasetError("Install pandas before building joint indexes")
         if len(dataset_ids) < 2:
             raise DatasetError("Joint index requires at least two datasets")
 
@@ -447,6 +455,8 @@ class DatasetManager:
         return max(min_nlist, min(max_nlist, candidate))
 
     def generate_visualization_data(self, dataset_id: str) -> Dict[str, str]:
+        if pd is None:
+            raise DatasetError("Install pandas to generate visualization data")
         dataset = self.get_dataset(dataset_id)
         vectors = np.load(dataset["vectors_path"]).astype(np.float32)
         metadata = pd.read_csv(dataset["metadata_path"], encoding="utf-8-sig", low_memory=False)

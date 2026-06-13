@@ -3,13 +3,15 @@ import logging
 import os
 import threading
 import time
+from functools import wraps
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Callable, Dict, Optional
 
 import numpy as np
 from flask import Flask, jsonify, render_template, request
 
 from ann_search_service import SearchInputError, SingleCellANNService
+from auth_manager import AuthError, AuthManager
 from dataset_manager import DatasetError, DatasetManager
 from hnsw_search_service import HNSWSearchService
 
@@ -49,6 +51,13 @@ def create_app() -> Flask:
     app = Flask(__name__)
     app.config["MAX_CONTENT_LENGTH"] = int(os.getenv("MAX_H5AD_UPLOAD_MB", "2048")) * 1024 * 1024
 
+    auth_manager = AuthManager(os.getenv("AUTH_DB_PATH", "auth.db"))
+    auth_manager.ensure_admin(
+        os.getenv("ADMIN_USERNAME", "admin"),
+        os.getenv("ADMIN_PASSWORD", "admin123"),
+        email=os.getenv("ADMIN_EMAIL", ""),
+    )
+
     dataset_manager = DatasetManager(
         default_vectors_path=os.getenv("ANN_VECTORS_PATH", "cleaned_pca_vectors.npy"),
         default_metadata_path=os.getenv("ANN_METADATA_PATH", "cleaned_cell_metadata.csv"),
@@ -72,6 +81,91 @@ def create_app() -> Flask:
     viz_cache: Dict[str, Any] = {}
     current_index_type = "faiss"
     index_lock = threading.Lock()
+
+    def extract_token() -> str:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.lower().startswith("bearer "):
+            return auth_header.split(" ", 1)[1].strip()
+        return request.headers.get("X-Auth-Token", "").strip() or request.cookies.get("auth_token", "")
+
+    def current_user() -> Optional[Dict[str, Any]]:
+        return auth_manager.user_from_token(extract_token())
+
+    def require_user(handler: Callable[..., Any]) -> Callable[..., Any]:
+        @wraps(handler)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            user = current_user()
+            if not user:
+                raise AuthError("authentication required", 401)
+            request.current_user = user  # type: ignore[attr-defined]
+            return handler(*args, **kwargs)
+        return wrapper
+
+    def require_admin(handler: Callable[..., Any]) -> Callable[..., Any]:
+        @wraps(handler)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            user = current_user()
+            if not user:
+                raise AuthError("authentication required", 401)
+            if user.get("role") != "admin":
+                raise AuthError("admin role required", 403)
+            request.current_user = user  # type: ignore[attr-defined]
+            return handler(*args, **kwargs)
+        return wrapper
+
+    def active_dataset_for_request() -> Dict[str, Any]:
+        dataset = dataset_manager.get_active_dataset()
+        user = current_user()
+        if not auth_manager.can_view_dataset(user, dataset):
+            raise AuthError("current user cannot access active dataset", 403)
+        return dataset
+
+    def dataset_with_policy(dataset: Dict[str, Any]) -> Dict[str, Any]:
+        item = dict(dataset)
+        item["permission"] = auth_manager.get_dataset_policy(dataset["id"], dataset)
+        return item
+
+    def visible_datasets(user: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        payload = dataset_manager.list_datasets()
+        datasets = [
+            dataset_with_policy(dataset)
+            for dataset in payload.get("datasets", [])
+            if auth_manager.can_view_dataset(user, dataset)
+        ]
+        return {
+            "active_dataset_id": payload.get("active_dataset_id"),
+            "datasets": datasets,
+            "current_user": user,
+        }
+
+    def parse_natural_language_query(text: str) -> Dict[str, str]:
+        lowered = (text or "").lower()
+        filters: Dict[str, str] = {}
+        cell_type_aliases = {
+            "hepatocyte": ["hepatocyte", "肝细胞"],
+            "kupffer cell": ["kupffer", "库普弗"],
+            "t cell": ["t cell", "t-cell", "t细胞"],
+            "b cell": ["b cell", "b-cell", "b细胞"],
+            "cholangiocyte": ["cholangiocyte", "胆管"],
+        }
+        disease_aliases = {
+            "normal": ["normal", "healthy", "正常"],
+            "cirrhosis": ["cirrhosis", "肝硬化"],
+            "fibrosis": ["fibrosis", "纤维化"],
+            "hepatitis": ["hepatitis", "肝炎"],
+            "hcc": ["hcc", "carcinoma", "肝癌"],
+        }
+        for value, aliases in cell_type_aliases.items():
+            if any(alias in lowered or alias in text for alias in aliases):
+                filters["cell_type"] = value
+                break
+        for value, aliases in disease_aliases.items():
+            if any(alias in lowered or alias in text for alias in aliases):
+                filters["disease"] = value
+                break
+        if any(keyword in lowered or keyword in text for keyword in ["liver", "hepatic", "肝"]):
+            filters.setdefault("dataset_group", "liver_disease")
+        return filters
 
     def get_search_service():
         return faiss_service if current_index_type == "faiss" else hnsw_service
@@ -104,10 +198,84 @@ def create_app() -> Flask:
             "status": "ok",
             "active_index_engine": engine,
             "active_dataset_id": dataset_manager.get_active_dataset()["id"],
+            "auth": {
+                "enabled": True,
+                "current_user": current_user(),
+            },
         })
+
+    @app.post("/api/auth/register")
+    def register_user():
+        payload: Dict[str, Any] = request.get_json(silent=True) or {}
+        user = auth_manager.create_user(
+            payload.get("username", ""),
+            payload.get("password", ""),
+            email=payload.get("email", ""),
+        )
+        return jsonify({"success": True, "user": user}), 201
+
+    @app.post("/api/auth/login")
+    def login_user():
+        payload: Dict[str, Any] = request.get_json(silent=True) or {}
+        auth = auth_manager.authenticate(
+            payload.get("username", ""),
+            payload.get("password", ""),
+            ttl_seconds=int(payload.get("ttl_seconds") or 86400),
+        )
+        return jsonify({"success": True, **auth})
+
+    @app.post("/api/auth/logout")
+    @require_user
+    def logout_user():
+        auth_manager.logout(extract_token())
+        return jsonify({"success": True})
+
+    @app.get("/api/auth/me")
+    def auth_me():
+        return jsonify({"user": current_user()})
+
+    @app.get("/api/admin/users")
+    @require_admin
+    def admin_list_users():
+        return jsonify({"users": auth_manager.list_users()})
+
+    @app.patch("/api/admin/users/<int:user_id>")
+    @require_admin
+    def admin_update_user(user_id: int):
+        payload: Dict[str, Any] = request.get_json(silent=True) or {}
+        user = auth_manager.update_user(user_id, payload)
+        return jsonify({"success": True, "user": user})
+
+    @app.delete("/api/admin/users/<int:user_id>")
+    @require_admin
+    def admin_delete_user(user_id: int):
+        current = request.current_user  # type: ignore[attr-defined]
+        if current["id"] == user_id:
+            raise AuthError("admin cannot delete the current session user", 400)
+        auth_manager.delete_user(user_id)
+        return jsonify({"success": True, "deleted": user_id})
+
+    @app.get("/api/admin/dataset-policies")
+    @require_admin
+    def admin_dataset_policies():
+        datasets = dataset_manager.list_datasets().get("datasets", [])
+        return jsonify({"policies": auth_manager.list_dataset_policies(datasets)})
+
+    @app.put("/api/admin/dataset-policies/<dataset_id>")
+    @require_admin
+    def admin_update_dataset_policy(dataset_id: str):
+        dataset_manager.get_dataset(dataset_id)
+        payload: Dict[str, Any] = request.get_json(silent=True) or {}
+        policy = auth_manager.set_dataset_policy(
+            dataset_id,
+            visibility=payload.get("visibility", "public"),
+            owner_user_id=payload.get("owner_user_id"),
+        )
+        return jsonify({"success": True, "policy": policy})
 
     @app.get("/api/index/status")
     def index_status():
+        active_dataset_for_request()
         with index_lock:
             engine = current_index_type
         service = faiss_service if engine == "faiss" else hnsw_service
@@ -129,6 +297,7 @@ def create_app() -> Flask:
         return jsonify(status)
 
     @app.post("/api/index/switch")
+    @require_user
     def switch_index():
         nonlocal current_index_type
         payload: Dict[str, Any] = request.get_json(silent=True) or {}
@@ -158,11 +327,13 @@ def create_app() -> Flask:
 
     @app.get("/api/datasets")
     def list_datasets():
-        return jsonify(dataset_manager.list_datasets())
+        return jsonify(visible_datasets(current_user()))
 
     @app.post("/api/datasets/upload")
+    @require_user
     def upload_dataset():
         nonlocal viz_cache
+        user = request.current_user  # type: ignore[attr-defined]
         upload = request.files.get("file")
         if upload is None:
             return jsonify({"error": "missing_file", "message": "请上传 file 字段中的 .h5ad 文件"}), 400
@@ -183,15 +354,25 @@ def create_app() -> Flask:
             with index_lock:
                 configure_services_for_dataset(dataset)
                 faiss_service.load()
+            visibility = request.form.get("visibility") or auth_manager.default_visibility(dataset)
+            auth_manager.set_dataset_policy(
+                dataset["id"],
+                visibility=visibility,
+                owner_user_id=user["id"],
+            )
             viz_cache = {}
-            return jsonify({"success": True, "dataset": dataset})
+            return jsonify({"success": True, "dataset": dataset_with_policy(dataset)})
         except DatasetError as e:
             return jsonify({"error": "dataset_error", "message": str(e)}), 400
 
     @app.delete("/api/datasets/<dataset_id>")
+    @require_user
     def delete_dataset(dataset_id: str):
         nonlocal viz_cache
         try:
+            dataset = dataset_manager.get_dataset(dataset_id)
+            if not auth_manager.can_manage_dataset(request.current_user, dataset):  # type: ignore[attr-defined]
+                raise AuthError("current user cannot delete this dataset", 403)
             result = dataset_manager.delete_dataset(dataset_id)
             dataset = dataset_manager.get_active_dataset()
             with index_lock:
@@ -202,27 +383,37 @@ def create_app() -> Flask:
             return jsonify({"error": "dataset_error", "message": str(e)}), 400
 
     @app.post("/api/datasets/switch")
+    @require_user
     def switch_dataset():
         nonlocal viz_cache
         payload: Dict[str, Any] = request.get_json(silent=True) or {}
         dataset_id = payload.get("dataset_id", "")
         try:
+            requested_dataset = dataset_manager.get_dataset(dataset_id)
+            if not auth_manager.can_view_dataset(request.current_user, requested_dataset):  # type: ignore[attr-defined]
+                raise AuthError("current user cannot access this dataset", 403)
             dataset = dataset_manager.set_active_dataset(dataset_id)
             with index_lock:
                 configure_services_for_dataset(dataset)
                 faiss_service.load()
             viz_cache = {}
-            return jsonify({"success": True, "dataset": dataset, "index_type": current_index_type})
+            return jsonify({"success": True, "dataset": dataset_with_policy(dataset), "index_type": current_index_type})
         except DatasetError as e:
             return jsonify({"error": "dataset_error", "message": str(e)}), 400
 
     @app.post("/api/datasets/joint-index")
+    @require_user
     def build_joint_dataset_index():
         nonlocal viz_cache
         payload: Dict[str, Any] = request.get_json(silent=True) or {}
         try:
+            dataset_ids = list(payload.get("dataset_ids") or [])
+            for dataset_id in dataset_ids:
+                dataset = dataset_manager.get_dataset(dataset_id)
+                if not auth_manager.can_view_dataset(request.current_user, dataset):  # type: ignore[attr-defined]
+                    raise AuthError(f"current user cannot access dataset {dataset_id}", 403)
             dataset = dataset_manager.build_joint_index(
-                list(payload.get("dataset_ids") or []),
+                dataset_ids,
                 name=payload.get("name") or "Joint dataset",
                 group=payload.get("group") or "joint",
                 description=payload.get("description") or "",
@@ -230,20 +421,26 @@ def create_app() -> Flask:
             with index_lock:
                 configure_services_for_dataset(dataset)
                 faiss_service.load()
+            auth_manager.set_dataset_policy(
+                dataset["id"],
+                visibility=payload.get("visibility") or "public",
+                owner_user_id=request.current_user["id"],  # type: ignore[attr-defined]
+            )
             viz_cache = {}
-            return jsonify({"success": True, "dataset": dataset})
+            return jsonify({"success": True, "dataset": dataset_with_policy(dataset)})
         except DatasetError as e:
             return jsonify({"error": "dataset_error", "message": str(e)}), 400
 
     @app.get("/api/cells/<path:cell_id>")
     def get_cell(cell_id: str):
+        active_dataset_for_request()
         with index_lock:
             service = get_search_service()
         return jsonify(service.get_cell(cell_id))
 
     @app.get("/api/cell-types")
     def list_cell_types():
-        meta_path = dataset_manager.get_active_dataset()["metadata_path"]
+        meta_path = active_dataset_for_request()["metadata_path"]
         if not os.path.exists(meta_path):
             return jsonify({"cell_types": []})
         import csv
@@ -258,7 +455,7 @@ def create_app() -> Flask:
     @app.get("/api/disease-types")
     def list_disease_types():
         """返回当前数据集中所有疾病/状态标签。"""
-        meta_path = dataset_manager.get_active_dataset()["metadata_path"]
+        meta_path = active_dataset_for_request()["metadata_path"]
         if not os.path.exists(meta_path):
             return jsonify({"disease_types": []})
         import csv
@@ -273,7 +470,7 @@ def create_app() -> Flask:
     @app.get("/api/visualization-data")
     def visualization_data():
         nonlocal viz_cache
-        dataset = dataset_manager.get_active_dataset()
+        dataset = active_dataset_for_request()
         cache_key = dataset["id"]
         if viz_cache.get("dataset_id") == cache_key:
             return jsonify(viz_cache["data"])
@@ -343,6 +540,7 @@ def create_app() -> Flask:
 
     @app.post("/api/search")
     def search():
+        active_dataset_for_request()
         payload: Dict[str, Any] = request.get_json(silent=True) or {}
 
         search_mode = (payload.get("search_mode") or "normal").lower()
@@ -408,12 +606,57 @@ def create_app() -> Flask:
 
     @app.get("/api/evaluation-data")
     def evaluation_data():
+        active_dataset_for_request()
         eval_file = Path("docs/performance_evaluation_summary.json")
         if eval_file.exists():
             import json
             with open(eval_file, encoding="utf-8") as f:
                 return jsonify(json.load(f))
         return jsonify({"datasets": []})
+
+    @app.post("/api/rag/query")
+    def rag_query():
+        """Reserved backend adapter for RAG + single-cell database workflows.
+
+        This endpoint intentionally avoids external LLM calls. It normalizes a
+        natural-language request into structured filters that can be handed to
+        /api/search or a future retrieval-augmented generation service.
+        """
+        active_dataset_for_request()
+        payload: Dict[str, Any] = request.get_json(silent=True) or {}
+        question = payload.get("question") or payload.get("query") or ""
+        filters = payload.get("filters") or parse_natural_language_query(question)
+        k = int(payload.get("k") or 10)
+
+        response: Dict[str, Any] = {
+            "success": True,
+            "mode": "rag_placeholder",
+            "question": question,
+            "parsed_filters": filters,
+            "recommended_search_request": {
+                "search_mode": "conditional" if filters else "normal",
+                "k": k,
+                "filters": filters,
+            },
+            "dataset": dataset_with_policy(dataset_manager.get_active_dataset()),
+            "message": "RAG adapter is ready. Connect an LLM provider to turn parsed filters and retrieval results into narrative answers.",
+        }
+
+        if payload.get("cell_id") or payload.get("vector"):
+            with index_lock:
+                service = get_search_service()
+            response["retrieval_preview"] = service.search(
+                cell_id=payload.get("cell_id"),
+                vector=payload.get("vector"),
+                k=k,
+                filters=filters,
+                include_self=bool(payload.get("include_self", False)),
+            )
+        return jsonify(response)
+
+    @app.errorhandler(AuthError)
+    def handle_auth_error(error: AuthError):
+        return jsonify({"error": "auth_error", "message": str(error)}), error.status_code
 
     @app.errorhandler(SearchInputError)
     def handle_search_input_error(error: SearchInputError):

@@ -18,7 +18,10 @@ package-lock.json
 # 运行日志
 *.log
 /tmp/
+.tmp/
 
 datasets/uploads/
 datasets/processed/
 datasets/joint/
+auth.db
+auth.db-*

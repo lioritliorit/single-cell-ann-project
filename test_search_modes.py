@@ -21,13 +21,20 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 import numpy as np
-import pandas as pd
 
 
 # ---------------------------------------------------------------------------
 # 测试工具
 # ---------------------------------------------------------------------------
 TEST_RESULTS: List[Dict[str, Any]] = []
+
+
+def make_temp_dir() -> str:
+    import tempfile
+
+    base = Path(os.getenv("TEST_TMPDIR", ".tmp/single_cell_ann_tests"))
+    base.mkdir(parents=True, exist_ok=True)
+    return tempfile.mkdtemp(dir=str(base))
 
 
 def log_test(name: str, passed: bool, detail: str = "") -> None:
@@ -164,8 +171,8 @@ def test_search_conditional() -> None:
             "author_cell_type": cell_types[i],
         })
 
-    import tempfile
-    tmpdir = tempfile.mkdtemp()
+    tmpdir = make_temp_dir()
+    service = None
     try:
         vectors_path = os.path.join(tmpdir, "vectors.npy")
         metadata_path = os.path.join(tmpdir, "metadata.csv")
@@ -249,7 +256,8 @@ def test_search_conditional() -> None:
         log_test("无匹配条件返回0结果", result_none["result_count"] == 0)
 
     finally:
-        _release_service(service)
+        if service is not None:
+            _release_service(service)
         import shutil
         shutil.rmtree(tmpdir, ignore_errors=True)
 
@@ -292,8 +300,9 @@ def test_pre_vs_post_filter_recall() -> None:
             "author_cell_type": cell_types[i],
         })
 
-    import tempfile, csv
-    tmpdir = tempfile.mkdtemp()
+    import csv
+    tmpdir = make_temp_dir()
+    service = None
     try:
         vectors_path = os.path.join(tmpdir, "vectors.npy")
         metadata_path = os.path.join(tmpdir, "metadata.csv")
@@ -352,7 +361,8 @@ def test_pre_vs_post_filter_recall() -> None:
             print("    → 高重叠度，预过滤更可靠 (不依赖 candidate_k 估计)")
 
     finally:
-        _release_service(service)
+        if service is not None:
+            _release_service(service)
         import shutil
         shutil.rmtree(tmpdir, ignore_errors=True)
 
