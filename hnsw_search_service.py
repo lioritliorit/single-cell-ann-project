@@ -5,6 +5,8 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
 
+from hnsw_index import HNSWIndex
+
 
 DEFAULT_FIELDS = [
     "cell_id",
@@ -29,12 +31,12 @@ class SearchInputError(ValueError):
     """Raised when a client query cannot be executed."""
 
 
-class SingleCellANNService:
-    """Top-K search wrapper for the prebuilt single-cell FAISS index."""
+class HNSWSearchService:
+    """Top-K search wrapper for the prebuilt HNSW index."""
 
     def __init__(
         self,
-        index_path: str = "faiss_index.bin",
+        index_path: str = "hnsw_index.npz",
         vectors_path: str = "cleaned_pca_vectors.npy",
         metadata_path: str = "cleaned_cell_metadata.csv",
         result_fields: Optional[Iterable[str]] = None,
@@ -44,14 +46,13 @@ class SingleCellANNService:
         self.metadata_path = metadata_path
         self.result_fields = list(result_fields or DEFAULT_FIELDS)
 
-        self.index = None
+        self.index: Optional[HNSWIndex] = None
         self.vectors = None
         self.metadata: List[Dict[str, str]] = []
         self.cell_id_to_row: Dict[str, int] = {}
         self.dimension: Optional[int] = None
         self._load_attempted = False
         self._load_error: Optional[str] = None
-        self._faiss_available = True
 
     def configure_paths(
         self,
@@ -70,23 +71,14 @@ class SingleCellANNService:
         self.dimension = None
         self._load_attempted = False
         self._load_error = None
-        self._faiss_available = True
 
     def load(self) -> None:
-        """Load the FAISS index, PCA vectors and metadata into the service."""
-        self._assert_file_exists(self.index_path, "FAISS index")
+        """Load the HNSW index, PCA vectors and metadata into the service."""
+        self._assert_file_exists(self.index_path, "HNSW index")
         self._assert_file_exists(self.vectors_path, "PCA vector file")
         self._assert_file_exists(self.metadata_path, "metadata file")
 
-        try:
-            import faiss
-            self.index = faiss.read_index(self.index_path)
-            self._faiss_available = True
-        except ImportError:
-            self.index = None
-            self._faiss_available = False
-
-        import numpy as np
+        self.index = HNSWIndex.load_index(self.index_path)
         self.vectors = np.load(self.vectors_path, mmap_mode="r")
         self.metadata = self._load_metadata(self.metadata_path)
         self.cell_id_to_row = {
@@ -101,29 +93,35 @@ class SingleCellANNService:
                 f"{len(self.vectors)} vectors vs {len(self.metadata)} metadata rows"
             )
 
-        if self.index is not None and self.index.ntotal != len(self.metadata):
+        if self.index.vectors is not None and len(self.index.vectors) != len(self.metadata):
             raise RuntimeError(
-                "FAISS index size and metadata count do not match: "
-                f"{self.index.ntotal} indexed vectors vs {len(self.metadata)} metadata rows"
+                "HNSW index size and metadata count do not match: "
+                f"{len(self.index.vectors)} indexed vectors vs {len(self.metadata)} metadata rows"
             )
 
         self.dimension = int(self.vectors.shape[1])
-        self._load_attempted = False
+        self._load_attempted = False  # Reset so future _ensure_loaded calls don't short-circuit
         self._load_error = None
 
     def status(self) -> Dict[str, Any]:
         self._ensure_loaded()
+        if not self._is_loaded():
+            return {
+                "loaded": False,
+                "error": self._load_error or "Service not loaded",
+            }
         return {
             "loaded": True,
             "index_path": self.index_path,
             "vectors_path": self.vectors_path,
             "metadata_path": self.metadata_path,
             "cell_count": len(self.metadata),
-            "index_total": int(self.index.ntotal) if self.index is not None else len(self.metadata),
+            "index_total": len(self.index.vectors) if self.index and self.index.vectors is not None else 0,
             "dimension": self.dimension,
-            "index_engine": "faiss",
-            "faiss_available": self._faiss_available,
-            "fallback_engine": None if self._faiss_available else "numpy_l2",
+            "index_engine": "hnsw",
+            "M": self.index.M if self.index else None,
+            "ef": self.index.ef if self.index else None,
+            "efConstruction": self.index.efConstruction if self.index else None,
         }
 
     def get_cell(self, cell_id: str) -> Dict[str, Any]:
@@ -139,7 +137,7 @@ class SingleCellANNService:
         cell_id: Optional[str] = None,
         vector: Optional[List[float]] = None,
         k: int = 10,
-        nprobe: Optional[int] = None,
+        nprobe: Optional[int] = None,  # Not used for HNSW
         include_self: bool = False,
         filters: Optional[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
@@ -149,15 +147,9 @@ class SingleCellANNService:
         k = self._validate_k(k)
         query_vector, query_cell_id, query_row = self._build_query(cell_id, vector)
 
-        if nprobe is not None and self.index is not None and hasattr(self.index, "nprobe"):
-            self.index.nprobe = self._validate_nprobe(nprobe)
-
         started = time.perf_counter()
         candidate_k = self._candidate_count(k, bool(filters), include_self)
-        if self.index is not None:
-            distances, indices = self.index.search(query_vector, candidate_k)
-        else:
-            distances, indices = self._numpy_search(query_vector, candidate_k)
+        distances, indices = self.index.search(query_vector, candidate_k)
         elapsed_ms = round((time.perf_counter() - started) * 1000, 3)
 
         results = []
@@ -179,20 +171,18 @@ class SingleCellANNService:
                 "row_index": query_row,
                 "dimension": self.dimension,
                 "k": k,
-                "nprobe": getattr(self.index, "nprobe", None) if self.index is not None else None,
                 "include_self": include_self,
                 "filters": filters,
             },
             "elapsed_ms": elapsed_ms,
             "result_count": len(results),
             "results": results,
-            "warnings": [] if self._faiss_available else [
-                "faiss-cpu 未安装，当前使用 NumPy 精确 L2 检索降级模式。"
-            ],
+            "engine": "hnsw",
+            "warnings": ["nprobe参数对HNSW索引无效，已忽略"] if nprobe is not None else [],
         }
 
     def _is_loaded(self) -> bool:
-        return self.vectors is not None and bool(self.metadata)
+        return self.index is not None and self.vectors is not None and bool(self.metadata)
 
     def _ensure_loaded(self) -> None:
         if self._is_loaded():
@@ -213,14 +203,6 @@ class SingleCellANNService:
     ) -> Tuple[Any, Optional[str], Optional[int]]:
         if bool(cell_id) == bool(vector):
             raise SearchInputError("Provide exactly one of cell_id or vector")
-
-        try:
-            import numpy as np
-        except ImportError as exc:
-            raise RuntimeError(
-                "Missing runtime dependency. Install with: "
-                "pip install -r requirements.txt"
-            ) from exc
 
         if cell_id:
             row_index = self.cell_id_to_row.get(cell_id)
@@ -285,16 +267,6 @@ class SingleCellANNService:
             raise SearchInputError("k must be between 1 and 100")
         return value
 
-    @staticmethod
-    def _validate_nprobe(nprobe: int) -> int:
-        try:
-            value = int(nprobe)
-        except (TypeError, ValueError) as exc:
-            raise SearchInputError("nprobe must be an integer") from exc
-        if value < 1:
-            raise SearchInputError("nprobe must be positive")
-        return value
-
     def _candidate_count(self, k: int, has_filters: bool, include_self: bool) -> int:
         multiplier = 10 if has_filters else 2
         extra = 0 if include_self else 1
@@ -312,15 +284,11 @@ class SingleCellANNService:
     # ---- 预过滤搜索（条件检索核心） ----
 
     def build_filter_mask(self, filters: Dict[str, str]) -> np.ndarray:
-        """根据过滤条件生成布尔掩码。True = 该行满足所有条件。
-
-        所有匹配均为 **大小写不敏感精确相等**。
-        """
+        """根据过滤条件生成布尔掩码。True = 该行满足所有条件。"""
         n = len(self.metadata)
         mask = np.ones(n, dtype=bool)
         if not filters:
             return mask
-
         for col, expected in filters.items():
             expected_lower = str(expected).lower()
             col_mask = np.zeros(n, dtype=bool)
@@ -332,28 +300,6 @@ class SingleCellANNService:
                 break
         return mask
 
-    def build_sub_index(self, mask: np.ndarray) -> Tuple[Any, np.ndarray]:
-        """从过滤掩码构建临时 FAISS 子索引。
-
-        Returns:
-            (faiss_index, global_indices) — global_indices 将子索引行号映射回全局行号。
-        """
-        subset_indices = np.where(mask)[0].astype(np.int64)
-        if len(subset_indices) == 0:
-            raise ValueError("Empty mask — no cells match the filter")
-
-        subset_vectors = self.vectors[subset_indices].astype(np.float32)
-
-        try:
-            import faiss
-            sub_index = faiss.IndexFlatL2(int(subset_vectors.shape[1]))
-            sub_index.add(subset_vectors)
-        except ImportError:
-            # 返回 None 表示下游应用降级方案
-            sub_index = None
-
-        return sub_index, subset_indices
-
     def search_conditional(
         self,
         *,
@@ -361,16 +307,10 @@ class SingleCellANNService:
         vector: Optional[List[float]] = None,
         k: int = 10,
         filters: Optional[Dict[str, str]] = None,
+        nprobe: Optional[int] = None,
         include_self: bool = False,
     ) -> Dict[str, Any]:
-        """条件检索：先构建过滤掩码，在子集上精确搜索 Top-K。
-
-        流程：
-          1. 根据 filters 生成 row mask
-          2. 提取子集向量 → 临时 FAISS IndexFlatL2
-          3. 在子索引中搜索
-          4. 将子索引结果映射回全局行号
-        """
+        """条件检索（HNSW 版）：HNSW 不支持临时子索引，使用掩码 + 精确 L2 搜索。"""
         self._ensure_loaded()
         filters = filters or {}
         k = self._validate_k(k)
@@ -384,22 +324,14 @@ class SingleCellANNService:
         if mask_count == 0:
             return {
                 "query": {
-                    "cell_id": query_cell_id,
-                    "row_index": query_row,
-                    "dimension": self.dimension,
-                    "k": k,
-                    "filters": filters,
-                    "mode": "conditional",
-                    "include_self": include_self,
+                    "cell_id": query_cell_id, "row_index": query_row,
+                    "dimension": self.dimension, "k": k,
+                    "filters": filters, "mode": "conditional", "include_self": include_self,
                 },
                 "elapsed_ms": round((time.perf_counter() - started) * 1000, 3),
-                "result_count": 0,
-                "results": [],
-                "filter_stats": {
-                    "total_cells": len(self.metadata),
-                    "filtered_cells": 0,
-                    "filter_ratio": 0.0,
-                },
+                "result_count": 0, "results": [],
+                "filter_stats": {"total_cells": len(self.metadata), "filtered_cells": 0, "filter_ratio": 0.0},
+                "engine": "hnsw",
                 "warnings": ["过滤条件未匹配到任何细胞"],
             }
 
@@ -407,42 +339,31 @@ class SingleCellANNService:
             mask[query_row] = False
             mask_count = int(mask.sum())
 
-        sub_index, subset_indices = self.build_sub_index(mask)
+        subset_indices = np.where(mask)[0].astype(np.int64)
+        subset_vectors = self.vectors[subset_indices].astype(np.float32)
 
-        if sub_index is not None:
-            sub_distances, sub_indices = sub_index.search(query_vector, min(k, mask_count))
+        # 精确 L2 搜索子集
+        diff = subset_vectors - query_vector.astype(np.float32)
+        distances = np.sum(diff * diff, axis=1)
+        n_top = min(k, len(distances))
+        if n_top == len(distances):
+            order = np.argsort(distances)
         else:
-            subset_vectors = self.vectors[subset_indices].astype(np.float32)
-            diff = subset_vectors - query_vector.astype(np.float32)
-            distances = np.sum(diff * diff, axis=1)
-            n_top = min(k, len(distances))
-            if n_top == len(distances):
-                order = np.argsort(distances)
-            else:
-                partial = np.argpartition(distances, n_top - 1)[:n_top]
-                order = partial[np.argsort(distances[partial])]
-            sub_distances = distances[order].reshape(1, -1)
-            sub_indices = order.astype(np.int64).reshape(1, -1)
+            partial = np.argpartition(distances, n_top - 1)[:n_top]
+            order = partial[np.argsort(distances[partial])]
 
         elapsed_ms = round((time.perf_counter() - started) * 1000, 3)
 
         results = []
-        for dist, sub_idx in zip(sub_distances[0], sub_indices[0]):
-            sub_idx = int(sub_idx)
-            if sub_idx < 0 or sub_idx >= len(subset_indices):
-                continue
-            global_idx = int(subset_indices[sub_idx])
-            results.append(self._format_result(global_idx, float(dist)))
+        for o in order[:k]:
+            global_idx = int(subset_indices[o])
+            results.append(self._format_result(global_idx, float(distances[o])))
 
         return {
             "query": {
-                "cell_id": query_cell_id,
-                "row_index": query_row,
-                "dimension": self.dimension,
-                "k": k,
-                "filters": filters,
-                "mode": "conditional",
-                "include_self": include_self,
+                "cell_id": query_cell_id, "row_index": query_row,
+                "dimension": self.dimension, "k": k,
+                "filters": filters, "mode": "conditional", "include_self": include_self,
             },
             "elapsed_ms": elapsed_ms,
             "result_count": len(results),
@@ -452,23 +373,14 @@ class SingleCellANNService:
                 "filtered_cells": mask_count,
                 "filter_ratio": mask_count / max(1, len(self.metadata)),
             },
-            "warnings": [] if self._faiss_available else [
-                "faiss-cpu 未安装，当前使用 NumPy 精确 L2 检索降级模式。"
+            "engine": "hnsw",
+            "warnings": [
+                "nprobe参数对HNSW索引无效，已忽略",
+                "条件检索在 HNSW 上使用精确 L2 搜索 (无临时子索引)",
+            ] if nprobe is not None else [
+                "条件检索在 HNSW 上使用精确 L2 搜索 (无临时子索引)",
             ],
         }
-
-    def _numpy_search(self, query_vector: Any, k: int) -> Tuple[Any, Any]:
-        import numpy as np
-
-        diff = self.vectors.astype("float32") - query_vector.astype("float32")
-        distances = np.sum(diff * diff, axis=1)
-        candidate_count = min(k, len(distances))
-        if candidate_count == len(distances):
-            order = np.argsort(distances)
-        else:
-            partial = np.argpartition(distances, candidate_count - 1)[:candidate_count]
-            order = partial[np.argsort(distances[partial])]
-        return distances[order].reshape(1, -1), order.astype(np.int64).reshape(1, -1)
 
     @staticmethod
     def _to_number(value: Optional[str]) -> Optional[float]:

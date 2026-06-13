@@ -10,3 +10,18 @@ liver.h5ad
 
 # IDE
 .vscode/
+
+# Node.js 依赖
+node_modules/
+package-lock.json
+
+# 运行日志
+*.log
+/tmp/
+.tmp/
+
+datasets/uploads/
+datasets/processed/
+datasets/joint/
+auth.db
+auth.db-*

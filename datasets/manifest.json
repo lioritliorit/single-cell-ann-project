@@ -1,0 +1,178 @@
+{
+  "active_dataset_id": "default",
+  "datasets": {
+    "default": {
+      "id": "default",
+      "name": "Default single-cell dataset",
+      "kind": "single",
+      "group": "regular",
+      "source": "project bundled files",
+      "description": "Initial dataset from cleaned_cell_metadata.csv and cleaned_pca_vectors.npy.",
+      "created_at": "2026-06-09T13:37:05Z",
+      "updated_at": "2026-06-09T13:37:05Z",
+      "h5ad_path": null,
+      "vectors_path": "cleaned_pca_vectors.npy",
+      "metadata_path": "cleaned_cell_metadata.csv",
+      "faiss_index_path": "faiss_index.bin",
+      "hnsw_index_path": "hnsw_index.npz",
+      "cell_count": 69032,
+      "dimension": 30,
+      "cell_types": [
+        "Kupffer cell",
+        "T cell",
+        "cholangiocyte",
+        "conventional dendritic cell",
+        "cycling myeloid cell",
+        "cycling plasma cell",
+        "endothelial cell of hepatic sinusoid",
+        "erythrocyte",
+        "gamma-delta T cell",
+        "hematopoietic stem cell",
+        "hepatocyte",
+        "macrophage",
+        "mature B cell",
+        "mononuclear phagocyte",
+        "natural killer cell",
+        "neutrophil",
+        "plasma cell",
+        "platelet",
+        "unknown"
+      ],
+      "diseases": [
+        "normal"
+      ],
+      "tissues": [
+        "caudate lobe of liver",
+        "right lobe of liver"
+      ],
+      "tags": [
+        "regular"
+      ],
+      "component_dataset_ids": [
+        "default"
+      ],
+      "pca_coords_path": "datasets\\processed\\default\\pca_coords.csv",
+      "umap_coords_path": "datasets\\processed\\default\\umap_coords.csv",
+      "tsne_coords_path": "datasets\\processed\\default\\tsne_coords.csv"
+    },
+    "ds-liver": {
+      "id": "ds-liver",
+      "name": "liver",
+      "kind": "single",
+      "group": "liver_disease",
+      "source": "GEO",
+      "description": "",
+      "created_at": "2026-06-09T15:23:35Z",
+      "updated_at": "2026-06-09T15:23:35Z",
+      "h5ad_path": "datasets\\uploads\\ds-liver.h5ad",
+      "vectors_path": "datasets\\processed\\ds-liver\\vectors.npy",
+      "metadata_path": "datasets\\processed\\ds-liver\\metadata.csv",
+      "faiss_index_path": "datasets\\processed\\ds-liver\\faiss_index.bin",
+      "hnsw_index_path": null,
+      "cell_count": 69032,
+      "dimension": 30,
+      "cell_types": [
+        "Kupffer cell",
+        "T cell",
+        "cholangiocyte",
+        "conventional dendritic cell",
+        "cycling myeloid cell",
+        "cycling plasma cell",
+        "endothelial cell of hepatic sinusoid",
+        "erythrocyte",
+        "gamma-delta T cell",
+        "hematopoietic stem cell",
+        "hepatocyte",
+        "macrophage",
+        "mature B cell",
+        "mononuclear phagocyte",
+        "natural killer cell",
+        "neutrophil",
+        "plasma cell",
+        "platelet",
+        "unknown"
+      ],
+      "diseases": [
+        "cirrhosis",
+        "fibrosis",
+        "hcc",
+        "hepatitis",
+        "normal"
+      ],
+      "tissues": [
+        "caudate lobe of liver",
+        "right lobe of liver"
+      ],
+      "tags": [
+        "liver_disease"
+      ],
+      "component_dataset_ids": [
+        "ds-liver"
+      ],
+      "pca_coords_path": "datasets\\processed\\ds-liver\\pca_coords.csv",
+      "umap_coords_path": "datasets\\processed\\ds-liver\\umap_coords.csv",
+      "tsne_coords_path": "datasets\\processed\\ds-liver\\tsne_coords.csv"
+    },
+    "joint-default-ds-liver": {
+      "id": "joint-default-ds-liver",
+      "name": "Joint default + ds-liver",
+      "kind": "joint",
+      "group": "joint",
+      "source": "project bundled files + GEO",
+      "description": "Web UI generated joint index",
+      "created_at": "2026-06-09T15:28:36Z",
+      "updated_at": "2026-06-10T07:31:48Z",
+      "h5ad_path": null,
+      "vectors_path": "datasets\\joint\\joint-default-ds-liver\\vectors.npy",
+      "metadata_path": "datasets\\joint\\joint-default-ds-liver\\metadata.csv",
+      "faiss_index_path": "datasets\\joint\\joint-default-ds-liver\\faiss_index.bin",
+      "hnsw_index_path": null,
+      "cell_count": 138064,
+      "dimension": 30,
+      "cell_types": [
+        "Kupffer cell",
+        "T cell",
+        "cholangiocyte",
+        "conventional dendritic cell",
+        "cycling myeloid cell",
+        "cycling plasma cell",
+        "endothelial cell of hepatic sinusoid",
+        "erythrocyte",
+        "gamma-delta T cell",
+        "hematopoietic stem cell",
+        "hepatocyte",
+        "macrophage",
+        "mature B cell",
+        "mononuclear phagocyte",
+        "natural killer cell",
+        "neutrophil",
+        "plasma cell",
+        "platelet",
+        "unknown"
+      ],
+      "diseases": [
+        "cirrhosis",
+        "fibrosis",
+        "hcc",
+        "hepatitis",
+        "normal"
+      ],
+      "tissues": [
+        "caudate lobe of liver",
+        "right lobe of liver"
+      ],
+      "tags": [
+        "joint",
+        "joint"
+      ],
+      "component_dataset_ids": [
+        "default",
+        "ds-liver"
+      ],
+      "pca_coords_path": "datasets\\joint\\joint-default-ds-liver\\pca_coords.csv",
+      "umap_coords_path": "datasets\\joint\\joint-default-ds-liver\\umap_coords.csv",
+      "tsne_coords_path": "datasets\\joint\\joint-default-ds-liver\\tsne_coords.csv"
+    }
+  },
+  "updated_at": "2026-06-11T05:53:20Z"
+}

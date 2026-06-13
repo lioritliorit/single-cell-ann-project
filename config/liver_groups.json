@@ -1,0 +1,48 @@
+{
+  "groups": {
+    "regular": {
+      "label": "常规数据集",
+      "description": "General reference datasets used as the baseline retrieval corpus.",
+      "recommended_index": "ivfflat",
+      "index_params": { "nlist": "auto", "nprobe": 10 }
+    },
+    "liver_disease": {
+      "label": "肝病专题数据集",
+      "description": "Disease-focused liver datasets, including hepatitis, cirrhosis, fibrosis, liver cancer, and related labels.",
+      "recommended_index": "ivfflat",
+      "index_params": { "nlist": "auto", "nprobe": 10 },
+      "filtering_strategy": "pre_filter",
+      "pre_filter_hint": "检索前按 disease 字段过滤，排除正常样本以聚焦肝病细胞相似性"
+    },
+    "joint": {
+      "label": "联合检索数据集",
+      "description": "Merged vector indexes built from two or more registered datasets.",
+      "recommended_index": "ivfflat",
+      "index_params": { "nlist": "auto", "nprobe": 20 }
+    }
+  },
+  "recommended_liver_tags": [
+    "liver",
+    "hepatitis",
+    "cirrhosis",
+    "fibrosis",
+    "hcc",
+    "cholestasis",
+    "steatosis"
+  ],
+  "metadata_fields_used_for_filtering": [
+    "dataset_id",
+    "dataset_name",
+    "dataset_group",
+    "dataset_source",
+    "cell_type",
+    "disease",
+    "tissue"
+  ],
+  "index_type_notes": {
+    "flat": "精确搜索，100%召回，适合 < 1万细胞",
+    "ivfflat": "倒排索引，平衡速度与精度，适合 1万-100万细胞。nlist=4*sqrt(N) 自动计算",
+    "ivfpq": "乘积量化压缩，内存小，适合 > 10万细胞。参数 m 需整除向量维度",
+    "hnsw": "FAISS 内置 HNSW，高召回，查询快，适合交互式检索"
+  }
+}
