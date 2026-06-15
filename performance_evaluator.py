@@ -586,18 +586,29 @@ def main():
             np.random.seed(42)
             vectors = np.random.randn(10000, 30).astype(np.float32)
     
-    # 使用部分数据进行评测（避免耗时过长）
-    sample_size = min(10000, len(vectors))
-    vectors = vectors[:sample_size]
-    queries = vectors[-50:]  # 用最后50个向量作为查询
+    # 使用全部数据进行评测
+    sample_size = len(vectors)
+    index_vectors = vectors[:sample_size]
+    
+    # 改进查询采样：优先使用未参与索引的向量作为查询
+    if len(vectors) > sample_size + 50:
+        # 如果有剩余数据，使用未参与索引的向量
+        queries = vectors[sample_size:sample_size+50]
+        print(f"\n使用未参与索引的向量作为查询")
+    else:
+        # 否则使用随机采样，避免位置偏差
+        rng = np.random.default_rng(42)
+        query_indices = rng.choice(len(index_vectors), size=min(50, len(index_vectors)), replace=False)
+        queries = index_vectors[query_indices]
+        print(f"\n使用索引中的随机向量作为查询")
     
     print(f"\n评测配置:")
-    print(f"  索引向量数: {len(vectors)}")
+    print(f"  索引向量数: {len(index_vectors)}")
     print(f"  查询向量数: {len(queries)}")
     print(f"  返回邻居数: k=10")
     
     # 创建评测器并运行
-    evaluator = PerformanceEvaluator(vectors, queries)
+    evaluator = PerformanceEvaluator(index_vectors, queries)
     evaluator.run_full_evaluation(k=10)
     
     print("\n" + "=" * 70)

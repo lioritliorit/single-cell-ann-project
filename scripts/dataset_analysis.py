@@ -56,30 +56,50 @@ class DatasetAnalysis:
                     selected.append(found[0])
         return selected
 
-    def evaluate_dataset(self, dataset_id: str, sample_size: int = 5000, query_size: int = 50, k_values: Optional[List[int]] = None) -> Dict[str, Any]:
+    def evaluate_dataset(self, dataset_id: str, sample_size: int = None, query_size: int = 50, k_values: Optional[List[int]] = None) -> Dict[str, Any]:
         if k_values is None:
-            k_values = [5, 10, 20]
+            k_values = [10]  # 只评测 k=10，避免重复构建
         dataset = self.manager.get_dataset(dataset_id)
         vectors = np.load(dataset["vectors_path"])
+        
+        # 如果不指定 sample_size，使用全部数据
+        if sample_size is None:
+            sample_size = len(vectors)
+        
         if len(vectors) > sample_size:
             rng = np.random.default_rng(42)
             indices = rng.choice(len(vectors), size=sample_size, replace=False)
-            vectors = vectors[indices]
-        queries = vectors[-query_size:] if len(vectors) >= query_size else vectors
+            index_vectors = vectors[indices]
+        else:
+            index_vectors = vectors
+        
+        # 改进查询采样：优先使用未参与索引的向量作为查询
+        if len(vectors) > sample_size + query_size:
+            # 如果有剩余数据，使用未参与索引的向量
+            queries = vectors[sample_size:sample_size+query_size]
+        else:
+            # 否则使用随机采样，避免位置偏差
+            rng = np.random.default_rng(42)
+            query_indices = rng.choice(len(index_vectors), size=min(query_size, len(index_vectors)), replace=False)
+            queries = index_vectors[query_indices]
 
         k_evaluations: Dict[int, Dict[str, Any]] = {}
-        for k in k_values:
-            evaluator = PerformanceEvaluator(vectors, queries)
-            evaluator.evaluate_faiss_flat(k=k)
-            evaluator.evaluate_faiss_ivfflat(nlist=min(100, max(1, len(vectors) // 10)), nprobe=10, k=k)
-            evaluator.evaluate_faiss_ivfpq(nlist=min(100, max(1, len(vectors) // 10)), m=8, nbits=8, nprobe=10, k=k)
-            evaluator.evaluate_faiss_hnsw(M=16, ef_search=50, k=k)
-            evaluator.evaluate_hnsw(M=16, efConstruction=200, ef_search=100, k=k)
-            evaluator.compute_recalls(k=k)
-            k_evaluations[k] = {
-                name: self._clean_metrics(result)
-                for name, result in evaluator.results.items()
-            }
+        
+        # 只评测默认 k 值（避免重复构建）
+        default_k = k_values[1] if len(k_values) > 1 else k_values[0]
+        evaluator = PerformanceEvaluator(index_vectors, queries)
+        evaluator.evaluate_faiss_flat(k=default_k)
+        evaluator.evaluate_faiss_ivfflat(nlist=min(100, max(1, len(vectors) // 10)), nprobe=10, k=default_k)
+        evaluator.evaluate_faiss_ivfpq(nlist=min(100, max(1, len(vectors) // 10)), m=8, nbits=8, nprobe=10, k=default_k)
+        evaluator.evaluate_faiss_hnsw(M=16, ef_search=50, k=default_k)
+        evaluator.evaluate_hnsw(M=16, efConstruction=200, ef_search=100, k=default_k)
+        evaluator.compute_recalls(k=default_k)
+        
+        # 保存结果
+        k_evaluations[default_k] = {
+            name: self._clean_metrics(result)
+            for name, result in evaluator.results.items()
+        }
 
         dataset_result = {
             "dataset_id": dataset_id,
