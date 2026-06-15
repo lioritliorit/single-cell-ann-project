@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
 import numpy as np
+import requests
 from flask import Flask, jsonify, render_template, request
 
 from ann_search_service import SearchInputError, SingleCellANNService
@@ -694,6 +695,65 @@ def create_app() -> Flask:
                 return jsonify(json.load(f))
         return jsonify({"datasets": []})
 
+    @staticmethod
+    def _call_llm(provider: str, api_key: str, question: str,
+                  results: list, filters: dict) -> str:
+        """Call external LLM API to generate a narrative answer."""
+        if not results:
+            return "未检索到相关细胞数据，无法生成 AI 分析。"
+        result_lines = []
+        for i, r in enumerate(results[:10]):
+            ct = r.get("cell_type", "unknown")
+            ds = r.get("disease", "normal")
+            did = r.get("dataset_name", "") or r.get("dataset_id", "")
+            result_lines.append(
+                f"{i + 1}. cell_id={r.get('cell_id','')}, "
+                f"type={ct}, disease={ds}, distance={r.get('distance',0):.4f}"
+                f"{', dataset=' + did if did else ''}"
+            )
+        context = "\n".join(result_lines)
+        filter_desc = "; ".join(f"{k}={v}" for k, v in filters.items()) if filters else "无"
+        system_prompt = (
+            "你是一个单细胞数据分析助手。以下是基于用户查询从单细胞数据库中检索到的相似细胞结果。"
+            "请根据这些结果回答用户的问题，总结检索到的细胞类型、疾病分布和关键特征。"
+        )
+        user_prompt = (
+            f"用户查询：{question}\n\n"
+            f"过滤条件：{filter_desc}\n\n"
+            f"检索结果（Top-{len(results)}）：\n{context}\n\n"
+            "请根据以上检索结果给出分析。"
+        )
+
+        if provider in ("openai", "deepseek"):
+            base_url = "https://api.openai.com/v1" if provider == "openai" else "https://api.deepseek.com/v1"
+            model = "gpt-4o-mini" if provider == "openai" else "deepseek-chat"
+            resp = requests.post(
+                f"{base_url}/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json={"model": model, "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ], "temperature": 0.3, "max_tokens": 1024},
+                timeout=60,
+            )
+            resp.raise_for_status()
+            return resp.json()["choices"][0]["message"]["content"]
+
+        elif provider == "claude":
+            resp = requests.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={"x-api-key": api_key, "anthropic-version": "2023-06-01",
+                         "Content-Type": "application/json"},
+                json={"model": "claude-3-haiku-20240307", "max_tokens": 1024,
+                       "system": system_prompt,
+                       "messages": [{"role": "user", "content": user_prompt}]},
+                timeout=60,
+            )
+            resp.raise_for_status()
+            return resp.json()["content"][0]["text"]
+
+        raise ValueError(f"Unsupported provider: {provider}")
+
     @app.post("/api/rag/query")
     def rag_query():
         """RAG endpoint: parse natural language → search → generate summary.
@@ -790,24 +850,22 @@ def create_app() -> Flask:
             response["answer"] = "未找到匹配的细胞结果，建议放宽筛选条件。"
 
         # 3. External LLM integration (optional)
-        if api_key and provider in ("openai", "claude"):
+        llm_answer = None
+        if api_key and provider in ("openai", "deepseek", "claude"):
             response["llm_provider"] = provider
             response["llm_status"] = "api_key_provided"
-            # Here you would call the external LLM API.
-            # Example for OpenAI:
-            #   import openai
-            #   openai.api_key = api_key
-            #   llm_response = openai.chat.completions.create(...)
-            #   response["llm_answer"] = llm_response.choices[0].message.content
-            response["llm_note"] = (
-                f"{provider} API key received. Implement the LLM call in this "
-                "endpoint to generate narrative answers from retrieval results."
-            )
+            try:
+                llm_answer = _call_llm(provider, api_key, question, results, filters)
+                response["llm_answer"] = llm_answer
+                response["llm_status"] = "success"
+            except Exception as exc:
+                response["llm_status"] = f"error: {exc}"
+                response["llm_note"] = f"调用 {provider} API 失败: {exc}"
         else:
             response["llm_provider"] = None
             response["llm_note"] = (
                 "模板摘要已生成。如需 AI 生成式回答，传入 provider_api_key "
-                "（支持 openai / claude）。"
+                "（支持 openai / deepseek / claude）。"
             )
 
         return jsonify(response)
