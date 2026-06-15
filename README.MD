@@ -230,6 +230,7 @@ hnsw = HNSWIndex.load_index("hnsw_index.npz")
 
 ```bash
 python performance_evaluator.py
+python scripts/dataset_analysis.py evaluate --all
 ```
 
 ### 4.10 启动后端API服务

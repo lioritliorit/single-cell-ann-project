@@ -726,7 +726,7 @@ function renderPlotlyChart() {
 
     const colorMode = $("viz-color-mode").value;
     const typeFilter = $("cell-type-filter-viz").value;
-
+    
     // Filter points
     let filtered = points;
     if (typeFilter) {
@@ -736,17 +736,98 @@ function renderPlotlyChart() {
         $("plotly-scatter").innerHTML = '<p style="text-align:center;padding:80px;color:#999;">所选类型无数据</p>';
         return;
     }
-
-    // Color mapping
-    const colorKey = colorMode;
-    const categories = [...new Set(filtered.map((p) => p[colorKey] || "未知"))].sort();
-    const palette = [
+    
+    // 语义一致的颜色映射表 - 确保相同语义的类别在不同着色模式下颜色一致
+    const semanticColorMap = {
+        // 正常/健康相关
+        'normal': '#2e7d32',
+        'Normal': '#2e7d32',
+        'healthy': '#2e7d32',
+        'control': '#2e7d32',
+        
+        // 疾病相关 - 红色系
+        'cirrhosis': '#c62828',
+        'Cirrhosis': '#c62828',
+        'fibrosis': '#e65100',
+        'Fibrosis': '#e65100',
+        'hepatitis': '#ad1457',
+        'Hepatitis': '#ad1457',
+        'hcc': '#c2185b',
+        'HCC': '#c2185b',
+        'carcinoma': '#c2185b',
+        
+        // 数据分组
+        'regular': '#1565c0',
+        'Regular': '#1565c0',
+        'liver_disease': '#c62828',
+        'Liver Disease': '#c62828',
+        'joint': '#6a1b9a',
+        'Joint': '#6a1b9a',
+        
+        // 常见细胞类型
+        'hepatocyte': '#1565c0',
+        'Hepatocyte': '#1565c0',
+        'kupffer cell': '#2e7d32',
+        'Kupffer Cell': '#2e7d32',
+        't cell': '#e65100',
+        'T Cell': '#e65100',
+        'b cell': '#6a1b9a',
+        'B Cell': '#6a1b9a',
+        'nk cell': '#00838f',
+        'NK Cell': '#00838f',
+        'natural killer cell': '#00838f',
+        'cholangiocyte': '#558b2f',
+        'Cholangiocyte': '#558b2f',
+        'macrophage': '#283593',
+        'Macrophage': '#283593',
+        'neutrophil': '#00695c',
+        'Neutrophil': '#00695c',
+        'dendritic cell': '#f57f17',
+        'Dendritic Cell': '#f57f17',
+        'plasma cell': '#455a64',
+        'Plasma Cell': '#455a64',
+        'hematopoietic stem cell': '#5d4037',
+        'Hematopoietic Stem Cell': '#5d4037',
+        
+        // 未知/其他
+        'unknown': '#9e9e9e',
+        '未知': '#9e9e9e',
+    };
+    
+    // 默认调色板（用于语义映射表中没有的类别）
+    const defaultPalette = [
         '#1565c0', '#2e7d32', '#e65100', '#6a1b9a', '#00838f',
         '#c62828', '#558b2f', '#283593', '#ad1457', '#00695c',
         '#f57f17', '#455a64', '#5d4037', '#00796b', '#c2185b',
         '#689f38', '#4527a0', '#ef6c00', '#4e342e', '#546e7a',
     ];
-
+    
+    const colorKey = colorMode;
+    const categories = [...new Set(filtered.map((p) => p[colorKey] || "未知"))].sort();
+    
+    // 为当前着色模式的所有类别分配颜色
+    const categoryColors = {};
+    let defaultColorIndex = 0;
+    for (const cat of categories) {
+        // 先尝试精确匹配
+        if (semanticColorMap[cat]) {
+            categoryColors[cat] = semanticColorMap[cat];
+        } else {
+            // 尝试不区分大小写匹配
+            const lowerCat = cat.toLowerCase();
+            const matchedKey = Object.keys(semanticColorMap).find(
+                key => key.toLowerCase() === lowerCat
+            );
+            if (matchedKey) {
+                categoryColors[cat] = semanticColorMap[matchedKey];
+            } else {
+                // 使用默认调色板
+                categoryColors[cat] = defaultPalette[defaultColorIndex % defaultPalette.length];
+                defaultColorIndex++;
+            }
+        }
+    }
+    
     const traces = [];
     let i = 0;
     for (const cat of categories) {
@@ -760,7 +841,7 @@ function renderPlotlyChart() {
             name: cat,
             marker: {
                 size: isLiver ? 5 : 3,
-                color: palette[i % palette.length],
+                color: categoryColors[cat],
                 opacity: 0.7,
                 line: isLiver ? { color: '#ff1744', width: 1 } : undefined,
             },
@@ -1153,8 +1234,9 @@ function renderEvaluationCharts(data) {
         },
         options: {
             responsive: true, maintainAspectRatio: false,
-            plugins: { legend: { display: true, position: "right" } },
+            plugins: { legend: { display: true, position: "bottom", labels: { boxWidth: 10, usePointStyle: true } } },
             scales: { y: { title: { display: true, text: "构建时间 (s)" }, beginAtZero: true } },
+            layout: { padding: { right: 16 } },
         },
     });
 
@@ -1173,8 +1255,9 @@ function renderEvaluationCharts(data) {
         },
         options: {
             responsive: true, maintainAspectRatio: false,
-            plugins: { legend: { display: true, position: "right" } },
+            plugins: { legend: { display: true, position: "bottom", labels: { boxWidth: 10, usePointStyle: true } } },
             scales: { y: { title: { display: true, text: "查询时间 (s)" }, beginAtZero: true } },
+            layout: { padding: { right: 16 } },
         },
     });
 
@@ -1193,8 +1276,9 @@ function renderEvaluationCharts(data) {
         },
         options: {
             responsive: true, maintainAspectRatio: false,
-            plugins: { legend: { display: true, position: "right" } },
+            plugins: { legend: { display: true, position: "bottom", labels: { boxWidth: 10, usePointStyle: true } } },
             scales: { y: { title: { display: true, text: "召回率" }, min: 0, max: 1 } },
+            layout: { padding: { right: 16 } },
         },
     });
 
@@ -1216,8 +1300,9 @@ function renderEvaluationCharts(data) {
         },
         options: {
             responsive: true, maintainAspectRatio: false,
-            plugins: { legend: { display: true, position: "right" } },
+            plugins: { legend: { display: true, position: "bottom", labels: { boxWidth: 10, usePointStyle: true } } },
             scales: { y: { title: { display: true, text: "内存 (MB)" }, beginAtZero: true } },
+            layout: { padding: { right: 16 } },
         },
     });
 }

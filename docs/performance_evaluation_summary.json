@@ -13,9 +13,9 @@
             "params": {
               "type": "flat"
             },
-            "build_time": 0.0,
-            "search_time": 0.003549337387084961,
-            "memory_mb": 1.1015625,
+            "build_time": 0.0004564999835565686,
+            "search_time": 0.003886599908582866,
+            "memory_mb": 1.10546875,
             "recall": 1.0,
             "precision": 1.0
           },
@@ -25,9 +25,9 @@
               "nlist": 100,
               "nprobe": 10
             },
-            "build_time": 0.019373655319213867,
-            "search_time": 0.0,
-            "memory_mb": 2.48046875,
+            "build_time": 0.03513750003185123,
+            "search_time": 0.0006663999520242214,
+            "memory_mb": 1.65625,
             "recall": 1.0,
             "precision": 1.0
           },
@@ -39,9 +39,9 @@
               "nbits": 8,
               "nprobe": 10
             },
-            "build_time": 0.07769227027893066,
-            "search_time": 0.0020084381103515625,
-            "memory_mb": 1.3125,
+            "build_time": 0.21149399993009865,
+            "search_time": 0.003572199959307909,
+            "memory_mb": 1.37890625,
             "recall": 0.776,
             "precision": 0.776
           },
@@ -51,9 +51,9 @@
               "M": 16,
               "ef": 50
             },
-            "build_time": 0.04557228088378906,
-            "search_time": 0.0,
-            "memory_mb": 3.6875,
+            "build_time": 0.08273280004505068,
+            "search_time": 0.000631400034762919,
+            "memory_mb": 1.4453125,
             "recall": 1.0,
             "precision": 1.0
           },
@@ -64,11 +64,11 @@
               "efConstruction": 200,
               "ef": 100
             },
-            "build_time": 48.24387073516846,
-            "search_time": 0.1532883644104004,
-            "memory_mb": 4.453125,
-            "recall": 0.848,
-            "precision": 0.848
+            "build_time": 58.58645029994659,
+            "search_time": 0.38387759996112436,
+            "memory_mb": 5.33203125,
+            "recall": 0.648,
+            "precision": 0.648
           }
         },
         "10": {
@@ -77,72 +77,8 @@
             "params": {
               "type": "flat"
             },
-            "build_time": 0.0,
-            "search_time": 0.001008749008178711,
-            "memory_mb": 1.14453125,
-            "recall": 1.0,
-            "precision": 1.0
-          },
-          "faiss_ivfflat": {
-            "method": "FAISS_IVFFlat (nlist=100)",
-            "params": {
-              "nlist": 100,
-              "nprobe": 10
-            },
-            "build_time": 0.01874375343322754,
-            "search_time": 0.0,
-            "memory_mb": 1.3125,
-            "recall": 1.0,
-            "precision": 1.0
-          },
-          "faiss_ivfpq": {
-            "method": "FAISS_IVFPQ (nlist=100, m=6, nbits=8)",
-            "params": {
-              "nlist": 100,
-              "m": 6,
-              "nbits": 8,
-              "nprobe": 10
-            },
-            "build_time": 0.06901836395263672,
-            "search_time": 0.0010001659393310547,
-            "memory_mb": 0.6640625,
-            "recall": 0.816,
-            "precision": 0.816
-          },
-          "faiss_hnsw": {
-            "method": "FAISS_HNSW (M=16)",
-            "params": {
-              "M": 16,
-              "ef": 50
-            },
-            "build_time": 0.05012631416320801,
-            "search_time": 0.0,
-            "memory_mb": 1.234375,
-            "recall": 1.0,
-            "precision": 1.0
-          },
-          "hnsw_self": {
-            "method": "HNSW_self (M=16)",
-            "params": {
-              "M": 16,
-              "efConstruction": 200,
-              "ef": 100
-            },
-            "build_time": 97.1045310497284,
-            "search_time": 1.1625981330871582,
-            "memory_mb": 1.09765625,
-            "recall": 1.0,
-            "precision": 1.0
-          }
-        },
-        "20": {
-          "faiss_flat": {
-            "method": "FAISS_Flat",
-            "params": {
-              "type": "flat"
-            },
-            "build_time": 0.0,
-            "search_time": 0.004752159118652344,
+            "build_time": 0.0005821000086143613,
+            "search_time": 0.008381000021472573,
             "memory_mb": 1.13671875,
             "recall": 1.0,
             "precision": 1.0
@@ -153,9 +89,9 @@
               "nlist": 100,
               "nprobe": 10
             },
-            "build_time": 0.04436326026916504,
-            "search_time": 0.0,
-            "memory_mb": 0.5703125,
+            "build_time": 0.05830579996109009,
+            "search_time": 0.001110800076276064,
+            "memory_mb": 1.546875,
             "recall": 1.0,
             "precision": 1.0
           },
@@ -167,11 +103,11 @@
               "nbits": 8,
               "nprobe": 10
             },
-            "build_time": 0.14400672912597656,
-            "search_time": 0.0010089874267578125,
-            "memory_mb": 0.8984375,
-            "recall": 0.862,
-            "precision": 0.862
+            "build_time": 0.1487151999026537,
+            "search_time": 0.0006693999748677015,
+            "memory_mb": 1.2265625,
+            "recall": 0.816,
+            "precision": 0.816
           },
           "faiss_hnsw": {
             "method": "FAISS_HNSW (M=16)",
@@ -179,153 +115,9 @@
               "M": 16,
               "ef": 50
             },
-            "build_time": 0.09407711029052734,
-            "search_time": 0.0015096664428710938,
-            "memory_mb": 0.73828125,
-            "recall": 1.0,
-            "precision": 1.0
-          },
-          "hnsw_self": {
-            "method": "HNSW_self (M=16)",
-            "params": {
-              "M": 16,
-              "efConstruction": 200,
-              "ef": 100
-            },
-            "build_time": 97.57991552352905,
-            "search_time": 0.873913049697876,
-            "memory_mb": 0.42578125,
-            "recall": 0.309,
-            "precision": 0.309
-          }
-        }
-      },
-      "default_k": 10,
-      "metrics": {
-        "faiss_flat": {
-          "method": "FAISS_Flat",
-          "params": {
-            "type": "flat"
-          },
-          "build_time": 0.0,
-          "search_time": 0.001008749008178711,
-          "memory_mb": 1.14453125,
-          "recall": 1.0,
-          "precision": 1.0
-        },
-        "faiss_ivfflat": {
-          "method": "FAISS_IVFFlat (nlist=100)",
-          "params": {
-            "nlist": 100,
-            "nprobe": 10
-          },
-          "build_time": 0.01874375343322754,
-          "search_time": 0.0,
-          "memory_mb": 1.3125,
-          "recall": 1.0,
-          "precision": 1.0
-        },
-        "faiss_ivfpq": {
-          "method": "FAISS_IVFPQ (nlist=100, m=6, nbits=8)",
-          "params": {
-            "nlist": 100,
-            "m": 6,
-            "nbits": 8,
-            "nprobe": 10
-          },
-          "build_time": 0.06901836395263672,
-          "search_time": 0.0010001659393310547,
-          "memory_mb": 0.6640625,
-          "recall": 0.816,
-          "precision": 0.816
-        },
-        "faiss_hnsw": {
-          "method": "FAISS_HNSW (M=16)",
-          "params": {
-            "M": 16,
-            "ef": 50
-          },
-          "build_time": 0.05012631416320801,
-          "search_time": 0.0,
-          "memory_mb": 1.234375,
-          "recall": 1.0,
-          "precision": 1.0
-        },
-        "hnsw_self": {
-          "method": "HNSW_self (M=16)",
-          "params": {
-            "M": 16,
-            "efConstruction": 200,
-            "ef": 100
-          },
-          "build_time": 97.1045310497284,
-          "search_time": 1.1625981330871582,
-          "memory_mb": 1.09765625,
-          "recall": 1.0,
-          "precision": 1.0
-        }
-      },
-      "distribution": {
-        "normal_count": 69032,
-        "disease_count": 0,
-        "normal_ratio": 1.0,
-        "top_diseases": []
-      }
-    },
-    {
-      "dataset_id": "ds-liver",
-      "dataset_name": "liver",
-      "group": "liver_disease",
-      "cell_count": 69032,
-      "dimension": 30,
-      "k_evaluations": {
-        "5": {
-          "faiss_flat": {
-            "method": "FAISS_Flat",
-            "params": {
-              "type": "flat"
-            },
-            "build_time": 0.0005159378051757812,
-            "search_time": 0.0036652088165283203,
-            "memory_mb": 1.14453125,
-            "recall": 1.0,
-            "precision": 1.0
-          },
-          "faiss_ivfflat": {
-            "method": "FAISS_IVFFlat (nlist=100)",
-            "params": {
-              "nlist": 100,
-              "nprobe": 10
-            },
-            "build_time": 0.05260920524597168,
-            "search_time": 0.0015106201171875,
-            "memory_mb": 0.390625,
-            "recall": 1.0,
-            "precision": 1.0
-          },
-          "faiss_ivfpq": {
-            "method": "FAISS_IVFPQ (nlist=100, m=6, nbits=8)",
-            "params": {
-              "nlist": 100,
-              "m": 6,
-              "nbits": 8,
-              "nprobe": 10
-            },
-            "build_time": 0.18173956871032715,
-            "search_time": 0.001516580581665039,
+            "build_time": 0.08001969999168068,
+            "search_time": 0.0004556000931188464,
             "memory_mb": 0.8515625,
-            "recall": 0.776,
-            "precision": 0.776
-          },
-          "faiss_hnsw": {
-            "method": "FAISS_HNSW (M=16)",
-            "params": {
-              "M": 16,
-              "ef": 50
-            },
-            "build_time": 0.09892916679382324,
-            "search_time": 0.0010225772857666016,
-            "memory_mb": 0.77734375,
             "recall": 1.0,
             "precision": 1.0
           },
@@ -336,22 +128,22 @@
               "efConstruction": 200,
               "ef": 100
             },
-            "build_time": 166.5000410079956,
-            "search_time": 0.9877479076385498,
-            "memory_mb": -4.7421875,
-            "recall": 0.904,
-            "precision": 0.904
+            "build_time": 58.38747910002712,
+            "search_time": 0.49482200003694743,
+            "memory_mb": 0.8984375,
+            "recall": 0.598,
+            "precision": 0.598
           }
         },
-        "10": {
+        "20": {
           "faiss_flat": {
             "method": "FAISS_Flat",
             "params": {
               "type": "flat"
             },
-            "build_time": 0.0015134811401367188,
-            "search_time": 0.003589630126953125,
-            "memory_mb": 1.13671875,
+            "build_time": 0.0017830000724643469,
+            "search_time": 0.005933400010690093,
+            "memory_mb": 0.35546875,
             "recall": 1.0,
             "precision": 1.0
           },
@@ -361,76 +153,12 @@
               "nlist": 100,
               "nprobe": 10
             },
-            "build_time": 0.03452801704406738,
-            "search_time": 0.0010120868682861328,
-            "memory_mb": 0.390625,
-            "recall": 1.0,
-            "precision": 1.0
-          },
-          "faiss_ivfpq": {
-            "method": "FAISS_IVFPQ (nlist=100, m=6, nbits=8)",
-            "params": {
-              "nlist": 100,
-              "m": 6,
-              "nbits": 8,
-              "nprobe": 10
-            },
-            "build_time": 0.1551682949066162,
-            "search_time": 0.0,
-            "memory_mb": 0.80078125,
-            "recall": 0.816,
-            "precision": 0.816
-          },
-          "faiss_hnsw": {
-            "method": "FAISS_HNSW (M=16)",
-            "params": {
-              "M": 16,
-              "ef": 50
-            },
-            "build_time": 0.08972740173339844,
-            "search_time": 0.0015065670013427734,
-            "memory_mb": 0.7578125,
-            "recall": 1.0,
-            "precision": 1.0
-          },
-          "hnsw_self": {
-            "method": "HNSW_self (M=16)",
-            "params": {
-              "M": 16,
-              "efConstruction": 200,
-              "ef": 100
-            },
-            "build_time": 85.82078242301941,
-            "search_time": 0.17358875274658203,
-            "memory_mb": 0.66015625,
-            "recall": 0.966,
-            "precision": 0.966
-          }
-        },
-        "20": {
-          "faiss_flat": {
-            "method": "FAISS_Flat",
-            "params": {
-              "type": "flat"
-            },
-            "build_time": 0.0,
-            "search_time": 0.0010061264038085938,
+            "build_time": 0.07919379998929799,
+            "search_time": 0.001196199911646545,
             "memory_mb": 0.0625,
             "recall": 1.0,
             "precision": 1.0
           },
-          "faiss_ivfflat": {
-            "method": "FAISS_IVFFlat (nlist=100)",
-            "params": {
-              "nlist": 100,
-              "nprobe": 10
-            },
-            "build_time": 0.019370317459106445,
-            "search_time": 0.0006124973297119141,
-            "memory_mb": 0.078125,
-            "recall": 1.0,
-            "precision": 1.0
-          },
           "faiss_ivfpq": {
             "method": "FAISS_IVFPQ (nlist=100, m=6, nbits=8)",
             "params": {
@@ -439,8 +167,8 @@
               "nbits": 8,
               "nprobe": 10
             },
-            "build_time": 0.09397029876708984,
-            "search_time": 0.0,
+            "build_time": 0.16087480005808175,
+            "search_time": 0.0006825000746175647,
             "memory_mb": 0.58984375,
             "recall": 0.862,
             "precision": 0.862
@@ -451,9 +179,9 @@
               "M": 16,
               "ef": 50
             },
-            "build_time": 0.045136213302612305,
-            "search_time": 0.0,
-            "memory_mb": 2.14453125,
+            "build_time": 0.08205099997576326,
+            "search_time": 0.0003469000803306699,
+            "memory_mb": 0.65625,
             "recall": 1.0,
             "precision": 1.0
           },
@@ -464,11 +192,11 @@
               "efConstruction": 200,
               "ef": 100
             },
-            "build_time": 27.65811824798584,
-            "search_time": 0.1636044979095459,
-            "memory_mb": 1.3203125,
-            "recall": 0.866,
-            "precision": 0.866
+            "build_time": 60.1126523000421,
+            "search_time": 0.0677811000496149,
+            "memory_mb": 0.171875,
+            "recall": 0.065,
+            "precision": 0.065
           }
         }
       },
@@ -479,8 +207,8 @@
           "params": {
             "type": "flat"
           },
-          "build_time": 0.0015134811401367188,
-          "search_time": 0.003589630126953125,
+          "build_time": 0.0005821000086143613,
+          "search_time": 0.008381000021472573,
           "memory_mb": 1.13671875,
           "recall": 1.0,
           "precision": 1.0
@@ -491,9 +219,9 @@
             "nlist": 100,
             "nprobe": 10
           },
-          "build_time": 0.03452801704406738,
-          "search_time": 0.0010120868682861328,
-          "memory_mb": 0.390625,
+          "build_time": 0.05830579996109009,
+          "search_time": 0.001110800076276064,
+          "memory_mb": 1.546875,
           "recall": 1.0,
           "precision": 1.0
         },
@@ -505,9 +233,9 @@
             "nbits": 8,
             "nprobe": 10
           },
-          "build_time": 0.1551682949066162,
-          "search_time": 0.0,
-          "memory_mb": 0.80078125,
+          "build_time": 0.1487151999026537,
+          "search_time": 0.0006693999748677015,
+          "memory_mb": 1.2265625,
           "recall": 0.816,
           "precision": 0.816
         },
@@ -517,9 +245,9 @@
             "M": 16,
             "ef": 50
           },
-          "build_time": 0.08972740173339844,
-          "search_time": 0.0015065670013427734,
-          "memory_mb": 0.7578125,
+          "build_time": 0.08001969999168068,
+          "search_time": 0.0004556000931188464,
+          "memory_mb": 0.8515625,
           "recall": 1.0,
           "precision": 1.0
         },
@@ -530,302 +258,20 @@
             "efConstruction": 200,
             "ef": 100
           },
-          "build_time": 85.82078242301941,
-          "search_time": 0.17358875274658203,
-          "memory_mb": 0.66015625,
-          "recall": 0.966,
-          "precision": 0.966
+          "build_time": 58.38747910002712,
+          "search_time": 0.49482200003694743,
+          "memory_mb": 0.8984375,
+          "recall": 0.598,
+          "precision": 0.598
         }
       },
       "distribution": {
-        "normal_count": 20682,
-        "disease_count": 48350,
-        "normal_ratio": 0.2996001854212539,
-        "top_diseases": [
-          "cirrhosis",
-          "hepatitis",
-          "fibrosis",
-          "hcc"
-        ]
-      }
-    },
-    {
-      "dataset_id": "joint-default-ds-liver",
-      "dataset_name": "Joint default + ds-liver",
-      "group": "joint",
-      "cell_count": 138064,
-      "dimension": 30,
-      "k_evaluations": {
-        "5": {
-          "faiss_flat": {
-            "method": "FAISS_Flat",
-            "params": {
-              "type": "flat"
-            },
-            "build_time": 0.0009944438934326172,
-            "search_time": 0.004591226577758789,
-            "memory_mb": 1.14453125,
-            "recall": 1.0,
-            "precision": 1.0
-          },
-          "faiss_ivfflat": {
-            "method": "FAISS_IVFFlat (nlist=100)",
-            "params": {
-              "nlist": 100,
-              "nprobe": 10
-            },
-            "build_time": 0.0502011775970459,
-            "search_time": 0.0,
-            "memory_mb": 0.19140625,
-            "recall": 1.0,
-            "precision": 1.0
-          },
-          "faiss_ivfpq": {
-            "method": "FAISS_IVFPQ (nlist=100, m=6, nbits=8)",
-            "params": {
-              "nlist": 100,
-              "m": 6,
-              "nbits": 8,
-              "nprobe": 10
-            },
-            "build_time": 0.1823732852935791,
-            "search_time": 0.00099945068359375,
-            "memory_mb": 0.765625,
-            "recall": 0.784,
-            "precision": 0.784
-          },
-          "faiss_hnsw": {
-            "method": "FAISS_HNSW (M=16)",
-            "params": {
-              "M": 16,
-              "ef": 50
-            },
-            "build_time": 0.09207963943481445,
-            "search_time": 0.0,
-            "memory_mb": 1.28125,
-            "recall": 1.0,
-            "precision": 1.0
-          },
-          "hnsw_self": {
-            "method": "HNSW_self (M=16)",
-            "params": {
-              "M": 16,
-              "efConstruction": 200,
-              "ef": 100
-            },
-            "build_time": 52.24435806274414,
-            "search_time": 1.0874125957489014,
-            "memory_mb": -4.640625,
-            "recall": 0.884,
-            "precision": 0.884
-          }
-        },
-        "10": {
-          "faiss_flat": {
-            "method": "FAISS_Flat",
-            "params": {
-              "type": "flat"
-            },
-            "build_time": 0.0,
-            "search_time": 0.003168821334838867,
-            "memory_mb": 1.13671875,
-            "recall": 1.0,
-            "precision": 1.0
-          },
-          "faiss_ivfflat": {
-            "method": "FAISS_IVFFlat (nlist=100)",
-            "params": {
-              "nlist": 100,
-              "nprobe": 10
-            },
-            "build_time": 0.04393339157104492,
-            "search_time": 0.0005190372467041016,
-            "memory_mb": 0.19140625,
-            "recall": 0.996,
-            "precision": 0.996
-          },
-          "faiss_ivfpq": {
-            "method": "FAISS_IVFPQ (nlist=100, m=6, nbits=8)",
-            "params": {
-              "nlist": 100,
-              "m": 6,
-              "nbits": 8,
-              "nprobe": 10
-            },
-            "build_time": 0.142319917678833,
-            "search_time": 0.001573801040649414,
-            "memory_mb": 0.7734375,
-            "recall": 0.806,
-            "precision": 0.806
-          },
-          "faiss_hnsw": {
-            "method": "FAISS_HNSW (M=16)",
-            "params": {
-              "M": 16,
-              "ef": 50
-            },
-            "build_time": 0.08535408973693848,
-            "search_time": 0.001512289047241211,
-            "memory_mb": 0.66015625,
-            "recall": 0.998,
-            "precision": 0.998
-          },
-          "hnsw_self": {
-            "method": "HNSW_self (M=16)",
-            "params": {
-              "M": 16,
-              "efConstruction": 200,
-              "ef": 100
-            },
-            "build_time": 109.87067484855652,
-            "search_time": 0.20993804931640625,
-            "memory_mb": 1.203125,
-            "recall": 0.866,
-            "precision": 0.866
-          }
-        },
-        "20": {
-          "faiss_flat": {
-            "method": "FAISS_Flat",
-            "params": {
-              "type": "flat"
-            },
-            "build_time": 0.0,
-            "search_time": 0.002110719680786133,
-            "memory_mb": 0.0,
-            "recall": 1.0,
-            "precision": 1.0
-          },
-          "faiss_ivfflat": {
-            "method": "FAISS_IVFFlat (nlist=100)",
-            "params": {
-              "nlist": 100,
-              "nprobe": 10
-            },
-            "build_time": 0.016208648681640625,
-            "search_time": 0.0,
-            "memory_mb": 0.01953125,
-            "recall": 0.992,
-            "precision": 0.992
-          },
-          "faiss_ivfpq": {
-            "method": "FAISS_IVFPQ (nlist=100, m=6, nbits=8)",
-            "params": {
-              "nlist": 100,
-              "m": 6,
-              "nbits": 8,
-              "nprobe": 10
-            },
-            "build_time": 0.06908774375915527,
-            "search_time": 0.003508329391479492,
-            "memory_mb": 2.0703125,
-            "recall": 0.827,
-            "precision": 0.827
-          },
-          "faiss_hnsw": {
-            "method": "FAISS_HNSW (M=16)",
-            "params": {
-              "M": 16,
-              "ef": 50
-            },
-            "build_time": 0.06511473655700684,
-            "search_time": 0.0005059242248535156,
-            "memory_mb": 0.890625,
-            "recall": 1.0,
-            "precision": 1.0
-          },
-          "hnsw_self": {
-            "method": "HNSW_self (M=16)",
-            "params": {
-              "M": 16,
-              "efConstruction": 200,
-              "ef": 100
-            },
-            "build_time": 30.150959491729736,
-            "search_time": 0.22852468490600586,
-            "memory_mb": 0.47265625,
-            "recall": 0.861,
-            "precision": 0.861
-          }
-        }
-      },
-      "default_k": 10,
-      "metrics": {
-        "faiss_flat": {
-          "method": "FAISS_Flat",
-          "params": {
-            "type": "flat"
-          },
-          "build_time": 0.0,
-          "search_time": 0.003168821334838867,
-          "memory_mb": 1.13671875,
-          "recall": 1.0,
-          "precision": 1.0
-        },
-        "faiss_ivfflat": {
-          "method": "FAISS_IVFFlat (nlist=100)",
-          "params": {
-            "nlist": 100,
-            "nprobe": 10
-          },
-          "build_time": 0.04393339157104492,
-          "search_time": 0.0005190372467041016,
-          "memory_mb": 0.19140625,
-          "recall": 0.996,
-          "precision": 0.996
-        },
-        "faiss_ivfpq": {
-          "method": "FAISS_IVFPQ (nlist=100, m=6, nbits=8)",
-          "params": {
-            "nlist": 100,
-            "m": 6,
-            "nbits": 8,
-            "nprobe": 10
-          },
-          "build_time": 0.142319917678833,
-          "search_time": 0.001573801040649414,
-          "memory_mb": 0.7734375,
-          "recall": 0.806,
-          "precision": 0.806
-        },
-        "faiss_hnsw": {
-          "method": "FAISS_HNSW (M=16)",
-          "params": {
-            "M": 16,
-            "ef": 50
-          },
-          "build_time": 0.08535408973693848,
-          "search_time": 0.001512289047241211,
-          "memory_mb": 0.66015625,
-          "recall": 0.998,
-          "precision": 0.998
-        },
-        "hnsw_self": {
-          "method": "HNSW_self (M=16)",
-          "params": {
-            "M": 16,
-            "efConstruction": 200,
-            "ef": 100
-          },
-          "build_time": 109.87067484855652,
-          "search_time": 0.20993804931640625,
-          "memory_mb": 1.203125,
-          "recall": 0.866,
-          "precision": 0.866
-        }
-      },
-      "distribution": {
-        "normal_count": 89714,
-        "disease_count": 48350,
-        "normal_ratio": 0.649800092710627,
-        "top_diseases": [
-          "cirrhosis",
-          "hepatitis",
-          "fibrosis",
-          "hcc"
-        ]
+        "normal_count": 69032,
+        "disease_count": 0,
+        "normal_ratio": 1.0,
+        "top_diseases": []
       }
     }
   ],
-  "generated_at": "2026-06-10T17:45:55Z"
+  "generated_at": "2026-06-15T19:35:15Z"
 }

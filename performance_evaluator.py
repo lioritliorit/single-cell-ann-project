@@ -97,7 +97,7 @@ class PerformanceEvaluator:
     def evaluate_hnsw(self, M: int = 16, efConstruction: int = 100, 
                       ef_search: int = 50, k: int = 10) -> Dict[str, Any]:
         """
-        评测自实现HNSW索引
+        评测自实现 HNSW 索引
         
         Args:
             M: 每层最大连接数
@@ -109,7 +109,7 @@ class PerformanceEvaluator:
             评测结果字典
         """
         print(f"\n{'='*60}")
-        print(f"评测自实现HNSW (M={M}, efConstruction={efConstruction}, ef={ef_search})")
+        print(f"评测自实现 HNSW (M={M}, efConstruction={efConstruction}, ef={ef_search})")
         print(f"{'='*60}")
         
         from hnsw_index import HNSWIndex
@@ -129,18 +129,18 @@ class PerformanceEvaluator:
         mem_before = self._get_memory_usage()
         
         # 构建索引
-        start_time = time.time()
+        start_time = time.perf_counter()
         hnsw = HNSWIndex(M=M, efConstruction=efConstruction, ef=ef_search)
         hnsw.build_index(self.vectors)
-        build_time = time.time() - start_time
+        build_time = time.perf_counter() - start_time
         
         # 记录构建后内存
         mem_after = self._get_memory_usage()
         
         # 执行搜索
-        start_time = time.time()
+        start_time = time.perf_counter()
         distances, indices = hnsw.search(self.queries, k=k)
-        search_time = time.time() - start_time
+        search_time = time.perf_counter() - start_time
         
         # 计算指标
         result['build_time'] = build_time
@@ -148,8 +148,8 @@ class PerformanceEvaluator:
         result['memory_mb'] = mem_after - mem_before
         result['indices'] = indices
         
-        print(f"构建时间: {build_time:.4f}s")
-        print(f"搜索时间: {search_time:.4f}s")
+        print(f"构建时间: {build_time:.6f}s")
+        print(f"搜索时间: {search_time:.6f}s")
         print(f"内存占用: {result['memory_mb']:.2f} MB")
         
         self.results['hnsw_self'] = result
@@ -157,7 +157,7 @@ class PerformanceEvaluator:
     
     def evaluate_faiss_flat(self, k: int = 10) -> Dict[str, Any]:
         """
-        评测FAISS Flat索引（精确搜索，作为baseline）
+        评测 FAISS Flat 索引（精确搜索，作为 baseline）
         
         Args:
             k: 返回最近邻数量
@@ -166,13 +166,13 @@ class PerformanceEvaluator:
             评测结果字典
         """
         print(f"\n{'='*60}")
-        print("评测FAISS Flat（精确搜索）")
+        print("评测 FAISS Flat（精确搜索）")
         print(f"{'='*60}")
         
         try:
             import faiss
         except ImportError:
-            print("FAISS未安装，跳过此测试")
+            print("FAISS 未安装，跳过此测试")
             return None
         
         result = {
@@ -181,7 +181,7 @@ class PerformanceEvaluator:
             'build_time': 0.0,
             'search_time': 0.0,
             'memory_mb': 0.0,
-            'recall': 1.0,  # 精确搜索召回率为1
+            'recall': 1.0,  # 精确搜索召回率为 1
             'precision': 1.0,
             'indices': None
         }
@@ -191,27 +191,27 @@ class PerformanceEvaluator:
         vectors_f32 = self.vectors.astype(np.float32)
         d = vectors_f32.shape[1]
         
-        # 构建索引
-        start_time = time.time()
+        # 构建索引 - 使用 perf_counter 获得更高精度
+        start_time = time.perf_counter()
         index = faiss.IndexFlatL2(d)
         index.add(vectors_f32)
-        build_time = time.time() - start_time
+        build_time = time.perf_counter() - start_time
         
         mem_after = self._get_memory_usage()
         
         # 执行搜索
         queries_f32 = self.queries.astype(np.float32)
-        start_time = time.time()
+        start_time = time.perf_counter()
         distances, indices = index.search(queries_f32, k)
-        search_time = time.time() - start_time
+        search_time = time.perf_counter() - start_time
         
         result['build_time'] = build_time
         result['search_time'] = search_time
         result['memory_mb'] = mem_after - mem_before
         result['indices'] = indices
         
-        print(f"构建时间: {build_time:.4f}s")
-        print(f"搜索时间: {search_time:.4f}s")
+        print(f"构建时间: {build_time:.6f}s")
+        print(f"搜索时间: {search_time:.6f}s")
         print(f"内存占用: {result['memory_mb']:.2f} MB")
         print(f"召回率: 1.0 (精确搜索)")
         
@@ -257,29 +257,29 @@ class PerformanceEvaluator:
         d = vectors_f32.shape[1]
         
         # 构建索引
-        start_time = time.time()
+        start_time = time.perf_counter()
         quantizer = faiss.IndexFlatL2(d)
         index = faiss.IndexIVFFlat(quantizer, d, nlist)
         index.train(vectors_f32)
         index.add(vectors_f32)
-        build_time = time.time() - start_time
+        build_time = time.perf_counter() - start_time
         
         mem_after = self._get_memory_usage()
         
         # 执行搜索
         index.nprobe = nprobe
         queries_f32 = self.queries.astype(np.float32)
-        start_time = time.time()
+        start_time = time.perf_counter()
         distances, indices = index.search(queries_f32, k)
-        search_time = time.time() - start_time
+        search_time = time.perf_counter() - start_time
         
         result['build_time'] = build_time
         result['search_time'] = search_time
         result['memory_mb'] = mem_after - mem_before
         result['indices'] = indices
         
-        print(f"构建时间: {build_time:.4f}s")
-        print(f"搜索时间: {search_time:.4f}s")
+        print(f"构建时间: {build_time:.6f}s")
+        print(f"搜索时间: {search_time:.6f}s")
         print(f"内存占用: {result['memory_mb']:.2f} MB")
         
         self.results['faiss_ivfflat'] = result
@@ -324,28 +324,28 @@ class PerformanceEvaluator:
         d = vectors_f32.shape[1]
         
         # 构建索引
-        start_time = time.time()
+        start_time = time.perf_counter()
         index = faiss.IndexHNSWFlat(d, M)
         index.hnsw.efConstruction = 200
         index.add(vectors_f32)
-        build_time = time.time() - start_time
+        build_time = time.perf_counter() - start_time
         
         mem_after = self._get_memory_usage()
         
         # 执行搜索
         index.hnsw.efSearch = ef_search
         queries_f32 = self.queries.astype(np.float32)
-        start_time = time.time()
+        start_time = time.perf_counter()
         distances, indices = index.search(queries_f32, k)
-        search_time = time.time() - start_time
+        search_time = time.perf_counter() - start_time
         
         result['build_time'] = build_time
         result['search_time'] = search_time
         result['memory_mb'] = mem_after - mem_before
         result['indices'] = indices
         
-        print(f"构建时间: {build_time:.4f}s")
-        print(f"搜索时间: {search_time:.4f}s")
+        print(f"构建时间: {build_time:.6f}s")
+        print(f"搜索时间: {search_time:.6f}s")
         print(f"内存占用: {result['memory_mb']:.2f} MB")
         
         self.results['faiss_hnsw'] = result
@@ -396,28 +396,28 @@ class PerformanceEvaluator:
             result['method'] = f'FAISS_IVFPQ (nlist={nlist}, m={m}, nbits={nbits})'
             result['params']['m'] = m
 
-        start_time = time.time()
+        start_time = time.perf_counter()
         quantizer = faiss.IndexFlatL2(d)
         index = faiss.IndexIVFPQ(quantizer, d, nlist, m, nbits)
         index.train(vectors_f32)
         index.add(vectors_f32)
-        build_time = time.time() - start_time
+        build_time = time.perf_counter() - start_time
 
         mem_after = self._get_memory_usage()
 
         index.nprobe = nprobe
         queries_f32 = self.queries.astype(np.float32)
-        start_time = time.time()
+        start_time = time.perf_counter()
         distances, indices = index.search(queries_f32, k)
-        search_time = time.time() - start_time
+        search_time = time.perf_counter() - start_time
 
         result['build_time'] = build_time
         result['search_time'] = search_time
         result['memory_mb'] = mem_after - mem_before
         result['indices'] = indices
 
-        print(f"构建时间: {build_time:.4f}s")
-        print(f"搜索时间: {search_time:.4f}s")
+        print(f"构建时间: {build_time:.6f}s")
+        print(f"搜索时间: {search_time:.6f}s")
         print(f"内存占用: {result['memory_mb']:.2f} MB")
 
         self.results['faiss_ivfpq'] = result
@@ -476,7 +476,7 @@ class PerformanceEvaluator:
         for method, result in self.results.items():
             recall = f"{result['recall']:.4f}"
             precision = f"{result['precision']:.4f}"
-            report.append(f"| {result['method']} | {result['build_time']:.4f} | {result['search_time']:.4f} | {result['memory_mb']:.2f} | {recall} | {precision} |")
+            report.append(f"| {result['method']} | {result['build_time']:.6f} | {result['search_time']:.6f} | {result['memory_mb']:.2f} | {recall} | {precision} |")
         
         report.append("")
         report.append("## 参数配置")
@@ -500,7 +500,7 @@ class PerformanceEvaluator:
             faiss_impl = self.results['faiss_hnsw']
             
             report.append(f"- **构建时间**: 自实现 {self_impl['build_time']:.2f}s vs FAISS {faiss_impl['build_time']:.2f}s")
-            report.append(f"- **查询时间**: 自实现 {self_impl['search_time']:.4f}s vs FAISS {faiss_impl['search_time']:.4f}s")
+            report.append(f"- **查询时间**: 自实现 {self_impl['search_time']:.6f}s vs FAISS {faiss_impl['search_time']:.6f}s")
             report.append(f"- **内存占用**: 自实现 {self_impl['memory_mb']:.2f}MB vs FAISS {faiss_impl['memory_mb']:.2f}MB")
             report.append(f"- **召回率**: 自实现 {self_impl['recall']:.4f} vs FAISS {faiss_impl['recall']:.4f}")
             report.append("")

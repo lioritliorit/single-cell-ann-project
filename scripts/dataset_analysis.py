@@ -155,7 +155,7 @@ class DatasetAnalysis:
                 if not metrics:
                     continue
                 lines.append(
-                    f"| {metrics.get('method', name)} | {metrics.get('build_time', 0.0):.4f} | {metrics.get('search_time', 0.0):.4f} | {metrics.get('memory_mb', 0.0):.2f} | {metrics.get('recall', 0.0):.4f} | {metrics.get('precision', 0.0):.4f} |"
+                    f"| {metrics.get('method', name)} | {metrics.get('build_time', 0.0):.6f} | {metrics.get('search_time', 0.0):.6f} | {metrics.get('memory_mb', 0.0):.2f} | {metrics.get('recall', 0.0):.4f} | {metrics.get('precision', 0.0):.4f} |"
                 )
             lines.append("")
             lines.extend([
@@ -185,7 +185,7 @@ class DatasetAnalysis:
                 if not metrics:
                     continue
                 lines.append(
-                    f"| {evaluation['dataset_id']} | {evaluation['group']} | {evaluation['cell_count']} | {metrics.get('method', method_name)} | {metrics.get('build_time', 0.0):.4f} | {metrics.get('search_time', 0.0):.4f} | {metrics.get('recall', 0.0):.4f} | {metrics.get('precision', 0.0):.4f} |"
+                    f"| {evaluation['dataset_id']} | {evaluation['group']} | {evaluation['cell_count']} | {metrics.get('method', method_name)} | {metrics.get('build_time', 0.0):.6f} | {metrics.get('search_time', 0.0):.6f} | {metrics.get('recall', 0.0):.4f} | {metrics.get('precision', 0.0):.4f} |"
                 )
         lines.append("")
         return lines
