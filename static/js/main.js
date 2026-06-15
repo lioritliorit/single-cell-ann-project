@@ -1,14 +1,26 @@
+/* ================================================================
+   单细胞 ANN 检索系统 — 前端主脚本
+   成员5：交互可视化与项目交付
+   ================================================================ */
+
+// ===== State =====
 const state = {
     indexStatus: null,
     datasets: [],
     activeDatasetId: null,
     cellTypeChart: null,
-    pcaChart: null,
     pcaData: null,
+    umapData: null,
+    plotlyChart: null,
+    currentVizView: 'pca',
+    selectedPoint: null,
+    authToken: null,
+    currentUser: null,
 };
 
 const $ = (id) => document.getElementById(id);
 
+// DOM refs — search
 const searchForm = $("search-form");
 const cellIdInput = $("cell-id-input");
 const kInput = $("k-input");
@@ -32,11 +44,16 @@ const resultsBody = $("results-body");
 const errorMsg = $("error-msg");
 const errorText = $("error-text");
 
+// ===== Init =====
 document.addEventListener("DOMContentLoaded", async () => {
     setupNavigation();
     setupIndexSwitch();
     setupDatasetControls();
+    setupAuthUI();
+    setupVizControls();
+    setupRAG();
     await refreshAll();
+    await checkAuth();
 });
 
 async function refreshAll() {
@@ -47,6 +64,7 @@ async function refreshAll() {
     await loadEvaluationData();
 }
 
+// ===== Navigation =====
 function setupNavigation() {
     const sections = document.querySelectorAll("section[id]");
     const navLinks = document.querySelectorAll(".nav-link");
@@ -76,8 +94,9 @@ function setupNavigation() {
     sections.forEach((section) => observer.observe(section));
 }
 
+// ===== API Helpers =====
 async function apiGet(url) {
-    const resp = await fetch(url);
+    const resp = await fetch(url, { headers: authHeaders() });
     if (!resp.ok) throw await readApiError(resp);
     return resp.json();
 }
@@ -85,7 +104,7 @@ async function apiGet(url) {
 async function apiPost(url, data) {
     const resp = await fetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify(data),
     });
     if (!resp.ok) throw await readApiError(resp);
@@ -93,9 +112,17 @@ async function apiPost(url, data) {
 }
 
 async function apiDelete(url) {
-    const resp = await fetch(url, { method: "DELETE" });
+    const resp = await fetch(url, { method: "DELETE", headers: authHeaders() });
     if (!resp.ok) throw await readApiError(resp);
     return resp.json();
+}
+
+function authHeaders() {
+    const headers = {};
+    if (state.authToken) {
+        headers["Authorization"] = `Bearer ${state.authToken}`;
+    }
+    return headers;
 }
 
 async function readApiError(resp) {
@@ -103,6 +130,117 @@ async function readApiError(resp) {
     return new Error(data.message || data.error || `HTTP ${resp.status}`);
 }
 
+// ===== Auth =====
+function setupAuthUI() {
+    $("login-btn").addEventListener("click", (e) => { e.preventDefault(); openModal("login-modal"); });
+    $("register-btn").addEventListener("click", (e) => { e.preventDefault(); openModal("register-modal"); });
+    $("logout-btn").addEventListener("click", (e) => { e.preventDefault(); logout(); });
+
+    $("login-form").addEventListener("submit", handleLogin);
+    $("register-form").addEventListener("submit", handleRegister);
+
+    document.querySelectorAll(".modal-close").forEach((btn) => {
+        btn.addEventListener("click", () => closeModal(btn.dataset.modal));
+    });
+    document.querySelectorAll(".modal-backdrop").forEach((el) => {
+        el.addEventListener("click", () => {
+            const modal = el.closest(".modal");
+            if (modal) closeModal(modal.id);
+        });
+    });
+}
+
+function openModal(id) {
+    document.getElementById(id).style.display = "flex";
+}
+
+function closeModal(id) {
+    document.getElementById(id).style.display = "none";
+}
+
+async function checkAuth() {
+    const token = localStorage.getItem("auth_token");
+    if (!token) { updateAuthUI(null); return; }
+    state.authToken = token;
+    try {
+        const data = await apiGet("/api/auth/me");
+        state.currentUser = data.user;
+        updateAuthUI(data.user);
+    } catch {
+        state.authToken = null;
+        localStorage.removeItem("auth_token");
+        updateAuthUI(null);
+    }
+}
+
+function updateAuthUI(user) {
+    if (user) {
+        $("user-display").style.display = "inline-flex";
+        $("user-name").textContent = user.username + (user.role === "admin" ? " (管理员)" : "");
+        $("login-btn").style.display = "none";
+        $("register-btn").style.display = "none";
+    } else {
+        $("user-display").style.display = "none";
+        $("login-btn").style.display = "inline";
+        $("register-btn").style.display = "inline";
+    }
+}
+
+async function handleLogin(e) {
+    e.preventDefault();
+    const username = $("login-username").value.trim();
+    const password = $("login-password").value;
+    const errEl = $("login-error");
+    errEl.style.display = "none";
+
+    try {
+        const data = await apiPost("/api/auth/login", { username, password });
+        state.authToken = data.token;
+        state.currentUser = data.user;
+        localStorage.setItem("auth_token", data.token);
+        updateAuthUI(data.user);
+        closeModal("login-modal");
+        $("login-form").reset();
+        await refreshAll();
+    } catch (err) {
+        errEl.textContent = err.message;
+        errEl.style.display = "flex";
+    }
+}
+
+async function handleRegister(e) {
+    e.preventDefault();
+    const username = $("register-username").value.trim();
+    const password = $("register-password").value;
+    const email = $("register-email").value.trim();
+    const errEl = $("register-error");
+    const successEl = $("register-success");
+    errEl.style.display = "none";
+    successEl.style.display = "none";
+
+    try {
+        await apiPost("/api/auth/register", { username, password, email });
+        successEl.textContent = "注册成功，请登录。";
+        successEl.style.display = "flex";
+        $("register-form").reset();
+        setTimeout(() => { closeModal("register-modal"); }, 1500);
+    } catch (err) {
+        errEl.textContent = err.message;
+        errEl.style.display = "flex";
+    }
+}
+
+async function logout() {
+    try {
+        await apiPost("/api/auth/logout", {});
+    } catch {}
+    state.authToken = null;
+    state.currentUser = null;
+    localStorage.removeItem("auth_token");
+    updateAuthUI(null);
+}
+
+// ===== Index Status =====
 async function loadIndexStatus() {
     try {
         const data = await apiGet("/api/index/status");
@@ -172,6 +310,7 @@ function updateSwitchBtnText(currentType) {
     $("switch-btn-text").textContent = currentType === "faiss" ? "切换到 HNSW" : "切换到 FAISS";
 }
 
+// ===== Dataset Management =====
 function setupDatasetControls() {
     $("dataset-upload-form").addEventListener("submit", uploadDataset);
     $("build-joint-btn").addEventListener("click", buildJointIndex);
@@ -252,7 +391,11 @@ async function uploadDataset(event) {
     showDatasetMessage("正在上传、解析 h5ad 并构建 FAISS 索引...", "info");
 
     try {
-        const resp = await fetch("/api/datasets/upload", { method: "POST", body: formData });
+        const resp = await fetch("/api/datasets/upload", {
+            method: "POST",
+            body: formData,
+            headers: authHeaders(),
+        });
         if (!resp.ok) throw await readApiError(resp);
         const data = await resp.json();
         showDatasetMessage(`已导入数据集：${data.dataset.name}`, "success");
@@ -322,6 +465,7 @@ function showDatasetMessage(message, type) {
     el.style.display = "flex";
 }
 
+// ===== Cell Type / Disease Filters =====
 async function loadCellTypes() {
     try {
         const data = await apiGet("/api/cell-types");
@@ -337,7 +481,6 @@ async function loadCellTypes() {
         console.warn("Failed to load cell types:", err);
     }
 
-    // 同时加载疾病类型
     try {
         const data = await apiGet("/api/disease-types");
         const types = data.disease_types || [];
@@ -353,120 +496,7 @@ async function loadCellTypes() {
     }
 }
 
-async function loadVisualizationData() {
-    try {
-        const data = await apiGet("/api/visualization-data");
-        state.pcaData = data;
-        renderCellTypeChart(data);
-        renderPCAScatter(data);
-    } catch (err) {
-        console.warn("Failed to load visualization data:", err);
-    }
-}
-
-function renderCellTypeChart(data) {
-    const ctx = $("cell-type-chart").getContext("2d");
-    const items = (data.cell_type_counts || []).sort((a, b) => b.count - a.count).slice(0, 15);
-    const colors = [
-        "#1565c0", "#2e7d32", "#e65100", "#6a1b9a", "#00838f",
-        "#c62828", "#558b2f", "#283593", "#ad1457", "#00695c",
-        "#b71c1c", "#1b5e20", "#4a148c", "#f57f17", "#455a64",
-    ];
-
-    if (state.cellTypeChart) state.cellTypeChart.destroy();
-    state.cellTypeChart = new Chart(ctx, {
-        type: "bar",
-        data: {
-            labels: items.map((d) => d.cell_type),
-            datasets: [{
-                label: "细胞数量",
-                data: items.map((d) => d.count),
-                backgroundColor: colors.slice(0, items.length),
-                borderRadius: 4,
-            }],
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            responsiveAnimationDuration: 0,
-            indexAxis: "y",
-            plugins: { legend: { display: false } },
-            scales: {
-                x: { grid: { display: false } },
-                y: { grid: { display: false }, ticks: { font: { size: 10 } } },
-            },
-        },
-    });
-}
-
-function renderPCAScatter(data) {
-    const ctx = $("pca-scatter").getContext("2d");
-    const points = data.pca_points || [];
-    const palette = [
-        "#1565c0", "#2e7d32", "#e65100", "#6a1b9a", "#00838f",
-        "#c62828", "#558b2f", "#283593", "#ad1457", "#00695c",
-        "#f57f17", "#455a64", "#5d4037", "#00796b", "#c2185b",
-    ];
-    const groups = {};
-
-    points.forEach((point) => {
-        const ct = point.cell_type || "unknown";
-        if (!groups[ct]) {
-            groups[ct] = {
-                label: ct,
-                data: [],
-                backgroundColor: palette[Object.keys(groups).length % palette.length],
-                hidden: false,
-            };
-        }
-        groups[ct].data.push({ x: point.pc1, y: point.pc2 });
-    });
-
-    if (state.pcaChart) state.pcaChart.destroy();
-    state.pcaChart = new Chart(ctx, {
-        type: "scatter",
-        data: { datasets: Object.values(groups) },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            responsiveAnimationDuration: 0,
-            animation: false,
-            plugins: {
-                legend: {
-                    display: true,
-                    position: "right",
-                    labels: { boxWidth: 12, padding: 8, font: { size: 9 }, filter: (item) => item.datasetIndex < 20 },
-                },
-            },
-            scales: {
-                x: { title: { display: true, text: "PC1", font: { size: 11 } }, grid: { display: false } },
-                y: { title: { display: true, text: "PC2", font: { size: 11 } }, grid: { display: false } },
-            },
-            elements: { point: { radius: 2, hoverRadius: 4 } },
-        },
-    });
-
-    initCellTypeFilterViz(points);
-}
-
-function initCellTypeFilterViz(points) {
-    const select = $("cell-type-filter-viz");
-    select.innerHTML = `<option value="">全部类型</option>`;
-    [...new Set(points.map((p) => p.cell_type || "unknown"))].sort().forEach((type) => {
-        const opt = document.createElement("option");
-        opt.value = type;
-        opt.textContent = type;
-        select.appendChild(opt);
-    });
-    select.onchange = () => {
-        const selected = select.value;
-        state.pcaChart.data.datasets.forEach((dataset) => {
-            dataset.hidden = selected !== "" && dataset.label !== selected;
-        });
-        state.pcaChart.update();
-    };
-}
-
+// ===== Search =====
 searchForm.addEventListener("submit", async (event) => {
     event.preventDefault();
 
@@ -501,7 +531,6 @@ searchForm.addEventListener("submit", async (event) => {
         $("engine-info").textContent = `${(data.index_type || "?").toUpperCase()} / ${data.dataset?.name || ""}`;
         queryInfo.style.display = "block";
 
-        // 显示过滤统计
         if (data.filter_stats) {
             const fs = data.filter_stats;
             statsTotal.textContent = formatNumber(fs.total_cells || 0);
@@ -564,23 +593,21 @@ function renderResults(results) {
 }
 
 function highlightQueryCell(data) {
-    if (!state.pcaChart || !state.pcaData) return;
-    state.pcaChart.data.datasets = state.pcaChart.data.datasets.filter((ds) => ds.label !== "查询细胞");
-
+    if (!state.plotlyChart) return;
     const rowIdx = data.query?.row_index;
-    const pcaPoint = Number.isInteger(rowIdx) ? state.pcaData.pca_points[rowIdx] : null;
-    if (!pcaPoint) return;
+    const points = state.currentVizView === 'umap' ? state.umapData : state.pcaData;
+    if (!points || !Number.isInteger(rowIdx) || rowIdx >= points.length) return;
+    const pt = points[rowIdx];
 
-    state.pcaChart.data.datasets.push({
-        label: "查询细胞",
-        data: [{ x: pcaPoint.pc1, y: pcaPoint.pc2 }],
-        backgroundColor: "#f44336",
-        pointRadius: 8,
-        pointBorderColor: "#fff",
-        pointBorderWidth: 2,
-        order: -1,
+    Plotly.addTraces('plotly-scatter', {
+        x: [pt.x],
+        y: [pt.y],
+        mode: 'markers',
+        type: 'scattergl',
+        name: '查询细胞',
+        marker: { size: 16, color: '#f44336', symbol: 'star', line: { color: '#fff', width: 2 } },
+        hoverinfo: 'skip',
     });
-    state.pcaChart.update();
 }
 
 function clearSearchResults() {
@@ -599,32 +626,480 @@ function hideError() {
     errorMsg.style.display = "none";
 }
 
-function formatNumber(value) {
-    return Number(value || 0).toLocaleString();
+// ===== Interactive Visualization (Plotly) =====
+function setupVizControls() {
+    // PCA/UMAP tab switching
+    document.querySelectorAll(".viz-tab").forEach((tab) => {
+        tab.addEventListener("click", () => {
+            const view = tab.dataset.view;
+            if (view === 'umap' && state.umapData.length === 0) {
+                // Show message but stay on PCA
+                const plotDiv = $("plotly-scatter");
+                plotDiv.innerHTML = '<div style="text-align:center;padding:100px 20px;color:#999;">' +
+                    '<i class="fas fa-info-circle" style="font-size:2rem;display:block;margin-bottom:12px;"></i>' +
+                    '<p>当前数据集没有 UMAP 降维数据。</p>' +
+                    '<p style="font-size:0.85rem;margin-top:8px;">请先运行 <code>python scripts/dataset_analysis.py generate-viz --all</code> 生成降维数据。</p>' +
+                    '</div>';
+                return;
+            }
+            document.querySelectorAll(".viz-tab").forEach((t) => t.classList.remove("active"));
+            tab.classList.add("active");
+            state.currentVizView = view;
+            renderPlotlyChart();
+        });
+    });
+
+    // Color mode change
+    $("viz-color-mode").addEventListener("change", () => renderPlotlyChart());
+
+    // Cell type filter
+    $("cell-type-filter-viz").addEventListener("change", () => renderPlotlyChart());
+
+    // Reset view
+    $("viz-reset-btn").addEventListener("click", () => {
+        if (state.plotlyChart) {
+            Plotly.relayout('plotly-scatter', {
+                'xaxis.autorange': true,
+                'yaxis.autorange': true,
+            });
+        }
+    });
+
+    // Search selected cell
+    $("search-selected-btn").addEventListener("click", () => {
+        if (state.selectedPoint) {
+            cellIdInput.value = state.selectedPoint.customdata ||
+                state.selectedPoint.cell_id || "";
+            document.querySelector('a[href="#search"]')?.click();
+            searchForm.dispatchEvent(new Event("submit"));
+        }
+    });
 }
 
-function formatDistance(value) {
-    return value === null || value === undefined ? "-" : Number(value).toFixed(4);
+async function loadVisualizationData() {
+    try {
+        const data = await apiGet("/api/visualization-data");
+        state.pcaData = data.pca_points || [];
+        state.umapData = data.umap_points || [];
+
+        // Populate viz cell type filter
+        const typeSet = new Set();
+        state.pcaData.forEach((p) => { if (p.cell_type) typeSet.add(p.cell_type); });
+        const typeSelect = $("cell-type-filter-viz");
+        typeSelect.innerHTML = `<option value="">全部类型</option>`;
+        [...typeSet].sort().forEach((ct) => {
+            const opt = document.createElement("option");
+            opt.value = ct;
+            opt.textContent = ct;
+            typeSelect.appendChild(opt);
+        });
+
+        // Render Plotly chart
+        renderPlotlyChart();
+
+        // Render charts & liver stats
+        renderCellTypeChart(data);
+        renderLiverStats(data);
+
+    } catch (err) {
+        console.warn("Failed to load visualization data:", err);
+    }
 }
 
-function formatOptionalNumber(value, digits) {
-    return value === null || value === undefined ? "-" : Number(value).toFixed(digits);
+function getCurrentVizPoints() {
+    return state.currentVizView === 'umap' && state.umapData.length > 0
+        ? state.umapData
+        : state.pcaData;
 }
 
-function groupLabel(value) {
-    const labels = { regular: "常规", liver_disease: "肝病", joint: "联合" };
-    return labels[value] || value || "-";
+function getCurrentVizLabel() {
+    if (state.currentVizView === 'umap' && state.umapData.length > 0) return 'UMAP';
+    return 'PC';
 }
 
-function escapeHtml(value) {
-    return String(value ?? "")
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#039;");
+function renderPlotlyChart() {
+    const points = getCurrentVizPoints();
+    if (!points || points.length === 0) {
+        $("plotly-scatter").innerHTML = '<p style="text-align:center;padding:80px;color:#999;">暂无数据</p>';
+        return;
+    }
+
+    const colorMode = $("viz-color-mode").value;
+    const typeFilter = $("cell-type-filter-viz").value;
+
+    // Filter points
+    let filtered = points;
+    if (typeFilter) {
+        filtered = points.filter((p) => p.cell_type === typeFilter);
+    }
+    if (filtered.length === 0) {
+        $("plotly-scatter").innerHTML = '<p style="text-align:center;padding:80px;color:#999;">所选类型无数据</p>';
+        return;
+    }
+
+    // Color mapping
+    const colorKey = colorMode;
+    const categories = [...new Set(filtered.map((p) => p[colorKey] || "未知"))].sort();
+    const palette = [
+        '#1565c0', '#2e7d32', '#e65100', '#6a1b9a', '#00838f',
+        '#c62828', '#558b2f', '#283593', '#ad1457', '#00695c',
+        '#f57f17', '#455a64', '#5d4037', '#00796b', '#c2185b',
+        '#689f38', '#4527a0', '#ef6c00', '#4e342e', '#546e7a',
+    ];
+
+    const traces = [];
+    let i = 0;
+    for (const cat of categories) {
+        const catPoints = filtered.filter((p) => (p[colorKey] || "未知") === cat);
+        const isLiver = cat === 'liver_disease' || cat === 'Liver Disease';
+        traces.push({
+            x: catPoints.map((p) => p.x),
+            y: catPoints.map((p) => p.y),
+            mode: 'markers',
+            type: 'scattergl',
+            name: cat,
+            marker: {
+                size: isLiver ? 5 : 3,
+                color: palette[i % palette.length],
+                opacity: 0.7,
+                line: isLiver ? { color: '#ff1744', width: 1 } : undefined,
+            },
+            text: catPoints.map((p) =>
+                `细胞: ${p.cell_id || '-'}<br>` +
+                `类型: ${p.cell_type || '-'}<br>` +
+                `疾病: ${p.disease || '-'}<br>` +
+                `分组: ${p.dataset_group || '-'}<br>` +
+                `数据集: ${p.dataset_name || '-'}`
+            ),
+            hoverinfo: 'text',
+            customdata: catPoints.map((p) => p.cell_id || ''),
+            ids: catPoints.map((_, idx) => `pt-${i}-${idx}`),
+            selectedpoints: [],
+        });
+        i++;
+    }
+
+    const layout = {
+        dragmode: 'lasso',
+        hovermode: 'closest',
+        margin: { l: 40, r: 40, t: 20, b: 40 },
+        showlegend: true,
+        legend: {
+            x: 1.02,
+            y: 1,
+            xanchor: 'left',
+            font: { size: 9 },
+            itemsizing: 'constant',
+        },
+        xaxis: {
+            title: getCurrentVizLabel() + '1',
+            gridcolor: '#f0f0f0',
+            zeroline: false,
+        },
+        yaxis: {
+            title: getCurrentVizLabel() + '2',
+            gridcolor: '#f0f0f0',
+            zeroline: false,
+        },
+        paper_bgcolor: '#fafafa',
+        plot_bgcolor: '#fafafa',
+        clickmode: 'event+select',
+    };
+
+    const config = {
+        responsive: true,
+        displayModeBar: true,
+        modeBarButtonsToRemove: ['sendDataToCloud', 'toImage'],
+        modeBarButtonsToAdd: [{
+            name: '框选检索',
+            icon: Plotly.Icons.selection,
+            click: function(gd) {
+                const selected = gd.selectedData || [];
+                if (selected.length === 0) return;
+                // Pick the first selected point
+                const pt = selected[0];
+                if (pt && pt.customdata) {
+                    cellIdInput.value = pt.customdata;
+                    showSelectedPointInfo(pt);
+                }
+            }
+        }],
+        displaylogo: false,
+        scrollZoom: true,
+    };
+
+    const plotDiv = $("plotly-scatter");
+    Plotly.newPlot(plotDiv, traces, layout, config).then(() => {
+        state.plotlyChart = plotDiv;
+
+        // Click handler: select cell
+        plotDiv.on('plotly_click', (data) => {
+            if (data.points && data.points.length > 0) {
+                const pt = data.points[0];
+                if (pt.customdata) {
+                    cellIdInput.value = pt.customdata;
+                    showSelectedPointInfo(pt);
+                }
+            }
+        });
+
+        // Lasso/box select handler
+        plotDiv.on('plotly_selected', (data) => {
+            const points = data.points || [];
+            if (points.length === 0) {
+                $("selected-point-info").style.display = "none";
+                return;
+            }
+            // Show info for first selected point
+            const pt = points[0];
+            if (pt && pt.customdata) {
+                cellIdInput.value = pt.customdata;
+                showSelectedPointInfo(pt);
+            }
+        });
+    });
 }
 
+function showSelectedPointInfo(pt) {
+    state.selectedPoint = pt;
+    $("selected-cell-id").textContent = pt.customdata || "-";
+    $("selected-cell-type").textContent = pt.data?.name || (pt.text || "").split("<br>")[1]?.replace("类型: ", "") || "-";
+    const textLines = (pt.text || "").split("<br>");
+    $("selected-disease").textContent = textLines[2]?.replace("疾病: ", "") || "-";
+    $("selected-dataset").textContent = textLines[4]?.replace("数据集: ", "") || "-";
+    $("selected-point-info").style.display = "flex";
+}
+
+// ===== Cell Type Distribution Chart =====
+function renderCellTypeChart(data) {
+    const ctx = $("cell-type-chart").getContext("2d");
+    const items = (data.cell_type_counts || []).sort((a, b) => b.count - a.count).slice(0, 15);
+    const colors = [
+        "#1565c0", "#2e7d32", "#e65100", "#6a1b9a", "#00838f",
+        "#c62828", "#558b2f", "#283593", "#ad1457", "#00695c",
+        "#b71c1c", "#1b5e20", "#4a148c", "#f57f17", "#455a64",
+    ];
+
+    if (state.cellTypeChart) state.cellTypeChart.destroy();
+    state.cellTypeChart = new Chart(ctx, {
+        type: "bar",
+        data: {
+            labels: items.map((d) => d.cell_type),
+            datasets: [{
+                label: "细胞数量",
+                data: items.map((d) => d.count),
+                backgroundColor: colors.slice(0, items.length),
+                borderRadius: 4,
+            }],
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            responsiveAnimationDuration: 0,
+            indexAxis: "y",
+            plugins: { legend: { display: false } },
+            scales: {
+                x: { grid: { display: false } },
+                y: { grid: { display: false }, ticks: { font: { size: 10 } } },
+            },
+        },
+    });
+}
+
+// ===== Liver Disease Stats =====
+function renderLiverStats(data) {
+    const container = $("liver-stats-container");
+    const points = data.pca_points || [];
+
+    // Count by disease
+    const diseaseCounts = {};
+    const groupCounts = {};
+    points.forEach((p) => {
+        const d = p.disease || "未知";
+        diseaseCounts[d] = (diseaseCounts[d] || 0) + 1;
+        const g = p.dataset_group || "未知";
+        groupCounts[g] = (groupCounts[g] || 0) + 1;
+    });
+
+    const diseaseTotal = Object.entries(diseaseCounts)
+        .filter(([k]) => k !== "未知" && k !== "normal" && k !== "")
+        .reduce((sum, [, v]) => sum + v, 0);
+
+    const normalCount = diseaseCounts["normal"] || diseaseCounts["Normal"] || 0;
+    const liverGroupCount = groupCounts["liver_disease"] || 0;
+    const total = points.length;
+
+    container.innerHTML = "";
+
+    const cards = [
+        { icon: 'fa-dna', iconClass: 'total', label: '总细胞数', value: formatNumber(total) },
+        { icon: 'fa-heart', iconClass: 'normal', label: '正常细胞', value: formatNumber(normalCount) },
+        { icon: 'fa-exclamation-triangle', iconClass: 'liver', label: '肝病相关细胞', value: formatNumber(diseaseTotal) },
+        { icon: 'fa-database', iconClass: 'liver', label: '肝病数据集细胞', value: formatNumber(liverGroupCount) },
+    ];
+
+    if (diseaseTotal > 0) {
+        cards.push({
+            icon: 'fa-percentage',
+            iconClass: 'liver',
+            label: '肝病细胞占比',
+            value: ((diseaseTotal / Math.max(total, 1)) * 100).toFixed(1) + '%',
+        });
+    }
+
+    cards.forEach((c) => {
+        const card = document.createElement("div");
+        card.className = "liver-stat-card";
+        card.innerHTML = `
+            <div class="liver-stat-icon ${c.iconClass}"><i class="fas ${c.icon}"></i></div>
+            <div class="liver-stat-info">
+                <div class="liver-stat-value">${c.value}</div>
+                <div class="liver-stat-label">${c.label}</div>
+            </div>
+        `;
+        container.appendChild(card);
+    });
+}
+
+// ===== RAG Query =====
+function setupRAG() {
+    $("rag-form").addEventListener("submit", handleRAGQuery);
+
+    // Click example queries
+    document.querySelectorAll(".rag-examples code").forEach((el) => {
+        el.addEventListener("click", () => {
+            $("rag-query").value = el.textContent;
+        });
+    });
+}
+
+async function handleRAGQuery(e) {
+    e.preventDefault();
+    const question = $("rag-query").value.trim();
+    if (!question) {
+        showRAGError("请输入查询语句");
+        return;
+    }
+
+    const k = parseInt($("rag-k").value, 10) || 5;
+    const provider = $("rag-provider").value;
+    const apiKey = $("rag-api-key").value.trim();
+
+    $("rag-result").style.display = "none";
+    $("rag-error").style.display = "none";
+    $("rag-loading").style.display = "block";
+    $("rag-btn").disabled = true;
+
+    try {
+        const payload = { question, k };
+        if (provider && apiKey) {
+            payload.provider = provider;
+            payload.provider_api_key = apiKey;
+        }
+        const data = await apiPost("/api/rag/query", payload);
+        $("rag-loading").style.display = "none";
+
+        // Show parsed result
+        const parsed = data.parsed_filters || {};
+        $("rag-original-query").textContent = question;
+        $("rag-mode").textContent = data.mode || "rag_placeholder";
+        $("rag-parsed-cell-type").textContent = parsed.cell_type || "—";
+        $("rag-parsed-disease").textContent = parsed.disease || "—";
+        $("rag-parsed-group").textContent = parsed.dataset_group || "—";
+
+        const rec = data.recommended_search_request || {};
+        $("rag-search-mode").textContent = rec.search_mode || "—";
+
+        $("rag-result").style.display = "block";
+
+        // Show AI answer
+        const answerBox = $("rag-answer-box");
+        if (data.answer) {
+            $("rag-answer-text").textContent = data.answer;
+            answerBox.style.display = "block";
+        } else {
+            answerBox.style.display = "none";
+        }
+
+        // Show summary
+        const summaryBox = $("rag-summary-box");
+        if (data.summary) {
+            const s = data.summary;
+            const grid = $("rag-summary-grid");
+            grid.innerHTML = `
+                <div class="rag-summary-item">
+                    <span class="rag-summary-label">主要细胞类型</span>
+                    <span class="rag-summary-value">${escapeHtml(s.top_cell_type || "-")}</span>
+                </div>
+                <div class="rag-summary-item">
+                    <span class="rag-summary-label">类型分布</span>
+                    <span class="rag-summary-value">${escapeHtml(s.cell_type_distribution || "-")}</span>
+                </div>
+                <div class="rag-summary-item">
+                    <span class="rag-summary-label">疾病分布</span>
+                    <span class="rag-summary-value">${escapeHtml(s.disease_distribution || "-")}</span>
+                </div>
+                <div class="rag-summary-item">
+                    <span class="rag-summary-label">最优细胞</span>
+                    <span class="rag-summary-value">${escapeHtml(s.top_result_id || "-")}</span>
+                </div>
+            `;
+            summaryBox.style.display = "block";
+        } else {
+            summaryBox.style.display = "none";
+        }
+
+        // Show search results
+        const searchRes = data.search_result;
+        if (searchRes && searchRes.results && searchRes.results.length > 0) {
+            renderRAGResults(searchRes.results);
+            $("rag-results-container").style.display = "block";
+            $("rag-result-info").textContent =
+                `查询耗时: ${searchRes.elapsed_ms || 0}ms | 结果数: ${searchRes.result_count || 0}`;
+        } else {
+            $("rag-results-container").style.display = "none";
+        }
+
+        // Show LLM note
+        const msgEl = $("rag-message");
+        if (data.llm_note) {
+            msgEl.innerHTML = `<i class="fas fa-info-circle"></i> ${escapeHtml(data.llm_note)}`;
+            msgEl.style.display = "block";
+        } else {
+            msgEl.style.display = "none";
+        }
+
+    } catch (err) {
+        $("rag-loading").style.display = "none";
+        showRAGError(err.message);
+    } finally {
+        $("rag-btn").disabled = false;
+    }
+}
+
+function renderRAGResults(results) {
+    const body = $("rag-results-body");
+    body.innerHTML = "";
+    results.forEach((r, idx) => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+            <td class="rank-cell">${idx + 1}</td>
+            <td>${escapeHtml(r.dataset_name || r.metadata?.dataset_name || "-")}</td>
+            <td><code>${escapeHtml(r.cell_id || "-")}</code></td>
+            <td><span class="cell-type-tag">${escapeHtml(r.cell_type || "-")}</span></td>
+            <td>${formatDistance(r.distance)}</td>
+            <td>${escapeHtml(r.disease || "-")}</td>
+        `;
+        body.appendChild(tr);
+    });
+}
+
+function showRAGError(msg) {
+    $("rag-error-text").textContent = msg;
+    $("rag-error").style.display = "flex";
+}
+
+// ===== Evaluation =====
 let buildTimeChart = null;
 let queryTimeChart = null;
 let recallChart = null;
@@ -661,121 +1136,88 @@ function renderEvaluationCharts(data) {
         "hnsw_self": "HNSW_self"
     };
 
-    // Build time chart - compare methods across datasets
-    const buildCtx = $("build-time-chart").getContext("2d");
-    if (buildTimeChart) buildTimeChart.destroy();
     const methods = ["faiss_flat", "faiss_ivfflat", "faiss_ivfpq", "faiss_hnsw", "hnsw_self"];
-    buildTimeChart = new Chart(buildCtx, {
+
+    // Build time chart
+    if (buildTimeChart) buildTimeChart.destroy();
+    buildTimeChart = new Chart($("build-time-chart").getContext("2d"), {
         type: "bar",
         data: {
             labels: datasetLabels,
-            datasets: methods.map((methodKey) => {
-                return {
-                    label: methodDisplayNames[methodKey],
-                    data: evaluations.map(ds => {
-                        const metrics = ds.metrics || {};
-                        return (metrics[methodKey]?.build_time) || 0;
-                    }),
-                    backgroundColor: methodColors[methodKey],
-                    borderRadius: 4,
-                };
-            }),
+            datasets: methods.map((mk) => ({
+                label: methodDisplayNames[mk],
+                data: evaluations.map(ds => (ds.metrics?.[mk]?.build_time) || 0),
+                backgroundColor: methodColors[mk],
+                borderRadius: 4,
+            })),
         },
         options: {
-            responsive: true,
-            maintainAspectRatio: false,
+            responsive: true, maintainAspectRatio: false,
             plugins: { legend: { display: true, position: "right" } },
-            scales: {
-                y: { title: { display: true, text: "构建时间 (s)" }, beginAtZero: true },
-            },
+            scales: { y: { title: { display: true, text: "构建时间 (s)" }, beginAtZero: true } },
         },
     });
 
     // Query time chart
-    const queryCtx = $("query-time-chart").getContext("2d");
     if (queryTimeChart) queryTimeChart.destroy();
-    queryTimeChart = new Chart(queryCtx, {
+    queryTimeChart = new Chart($("query-time-chart").getContext("2d"), {
         type: "bar",
         data: {
             labels: datasetLabels,
-            datasets: methods.map((methodKey) => {
-                return {
-                    label: methodDisplayNames[methodKey],
-                    data: evaluations.map(ds => {
-                        const metrics = ds.metrics || {};
-                        return (metrics[methodKey]?.search_time) || 0;
-                    }),
-                    backgroundColor: methodColors[methodKey],
-                    borderRadius: 4,
-                };
-            }),
+            datasets: methods.map((mk) => ({
+                label: methodDisplayNames[mk],
+                data: evaluations.map(ds => (ds.metrics?.[mk]?.search_time) || 0),
+                backgroundColor: methodColors[mk],
+                borderRadius: 4,
+            })),
         },
         options: {
-            responsive: true,
-            maintainAspectRatio: false,
+            responsive: true, maintainAspectRatio: false,
             plugins: { legend: { display: true, position: "right" } },
-            scales: {
-                y: { title: { display: true, text: "查询时间 (s)" }, beginAtZero: true },
-            },
+            scales: { y: { title: { display: true, text: "查询时间 (s)" }, beginAtZero: true } },
         },
     });
 
-    // Recall chart - K=10
-    const recallCtx = $("recall-chart").getContext("2d");
+    // Recall chart
     if (recallChart) recallChart.destroy();
-    recallChart = new Chart(recallCtx, {
+    recallChart = new Chart($("recall-chart").getContext("2d"), {
         type: "bar",
         data: {
             labels: datasetLabels,
-            datasets: methods.map((methodKey) => {
-                return {
-                    label: methodDisplayNames[methodKey],
-                    data: evaluations.map(ds => {
-                        const metrics = ds.metrics || {};
-                        return (metrics[methodKey]?.recall) || 0;
-                    }),
-                    backgroundColor: methodColors[methodKey],
-                    borderRadius: 4,
-                };
-            }),
+            datasets: methods.map((mk) => ({
+                label: methodDisplayNames[mk],
+                data: evaluations.map(ds => (ds.metrics?.[mk]?.recall) || 0),
+                backgroundColor: methodColors[mk],
+                borderRadius: 4,
+            })),
         },
         options: {
-            responsive: true,
-            maintainAspectRatio: false,
+            responsive: true, maintainAspectRatio: false,
             plugins: { legend: { display: true, position: "right" } },
-            scales: {
-                y: { title: { display: true, text: "召回率" }, min: 0, max: 1 },
-            },
+            scales: { y: { title: { display: true, text: "召回率" }, min: 0, max: 1 } },
         },
     });
 
     // Memory chart
-    const memoryCtx = $("memory-chart").getContext("2d");
     if (memoryChart) memoryChart.destroy();
-    memoryChart = new Chart(memoryCtx, {
+    memoryChart = new Chart($("memory-chart").getContext("2d"), {
         type: "bar",
         data: {
             labels: datasetLabels,
-            datasets: methods.map((methodKey) => {
-                return {
-                    label: methodDisplayNames[methodKey],
-                    data: evaluations.map(ds => {
-                        const metrics = ds.metrics || {};
-                        const mem = (metrics[methodKey]?.memory_mb) || 0;
-                        return mem >= 0 ? mem : 0; // 过滤掉负数
-                    }),
-                    backgroundColor: methodColors[methodKey],
-                    borderRadius: 4,
-                };
-            }),
+            datasets: methods.map((mk) => ({
+                label: methodDisplayNames[mk],
+                data: evaluations.map(ds => {
+                    const mem = (ds.metrics?.[mk]?.memory_mb) || 0;
+                    return mem >= 0 ? mem : 0;
+                }),
+                backgroundColor: methodColors[mk],
+                borderRadius: 4,
+            })),
         },
         options: {
-            responsive: true,
-            maintainAspectRatio: false,
+            responsive: true, maintainAspectRatio: false,
             plugins: { legend: { display: true, position: "right" } },
-            scales: {
-                y: { title: { display: true, text: "内存 (MB)" }, beginAtZero: true },
-            },
+            scales: { y: { title: { display: true, text: "内存 (MB)" }, beginAtZero: true } },
         },
     });
 }
@@ -810,4 +1252,31 @@ function renderEvaluationTable(data) {
             tbody.appendChild(tr);
         });
     });
+}
+
+// ===== Utility =====
+function formatNumber(value) {
+    return Number(value || 0).toLocaleString();
+}
+
+function formatDistance(value) {
+    return value === null || value === undefined ? "-" : Number(value).toFixed(4);
+}
+
+function formatOptionalNumber(value, digits) {
+    return value === null || value === undefined ? "-" : Number(value).toFixed(digits);
+}
+
+function groupLabel(value) {
+    const labels = { regular: "常规", liver_disease: "肝病", joint: "联合" };
+    return labels[value] || value || "-";
+}
+
+function escapeHtml(value) {
+    return String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
 }

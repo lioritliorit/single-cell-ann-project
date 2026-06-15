@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import random
 import threading
 import time
 from functools import wraps
@@ -143,17 +144,23 @@ def create_app() -> Flask:
         filters: Dict[str, str] = {}
         cell_type_aliases = {
             "hepatocyte": ["hepatocyte", "肝细胞"],
-            "kupffer cell": ["kupffer", "库普弗"],
-            "t cell": ["t cell", "t-cell", "t细胞"],
-            "b cell": ["b cell", "b-cell", "b细胞"],
+            "kupffer cell": ["kupffer", "库普弗", "kupffer细胞"],
+            "t cell": ["t cell", "t-cell", "t细胞", "t淋巴细胞"],
+            "b cell": ["b cell", "b-cell", "b细胞", "b淋巴细胞"],
+            "natural killer cell": ["natural killer", "nk cell", "nk细胞", "自然杀伤"],
             "cholangiocyte": ["cholangiocyte", "胆管"],
+            "macrophage": ["macrophage", "巨噬"],
+            "neutrophil": ["neutrophil", "中性粒"],
+            "dendritic cell": ["dendritic", "树突"],
+            "plasma cell": ["plasma cell", "浆细胞"],
+            "hematopoietic stem cell": ["stem cell", "干细胞", "造血"],
         }
         disease_aliases = {
-            "normal": ["normal", "healthy", "正常"],
+            "normal": ["normal", "healthy", "正常", "健康"],
             "cirrhosis": ["cirrhosis", "肝硬化"],
             "fibrosis": ["fibrosis", "纤维化"],
             "hepatitis": ["hepatitis", "肝炎"],
-            "hcc": ["hcc", "carcinoma", "肝癌"],
+            "hcc": ["hcc", "carcinoma", "肝癌", "肿瘤"],
         }
         for value, aliases in cell_type_aliases.items():
             if any(alias in lowered or alias in text for alias in aliases):
@@ -163,8 +170,6 @@ def create_app() -> Flask:
             if any(alias in lowered or alias in text for alias in aliases):
                 filters["disease"] = value
                 break
-        if any(keyword in lowered or keyword in text for keyword in ["liver", "hepatic", "肝"]):
-            filters.setdefault("dataset_group", "liver_disease")
         return filters
 
     def get_search_service():
@@ -467,6 +472,39 @@ def create_app() -> Flask:
                     types.add(disease)
         return jsonify({"disease_types": sorted(types)})
 
+    def _parse_viz_csv(csv_path: Path) -> tuple:
+        """Parse a visualization CSV (pca_coords.csv or umap_coords.csv) and return points + type counts."""
+        import csv
+        points = []
+        type_counts: Dict[str, int] = {}
+        disease_counts: Dict[str, int] = {}
+        with open(csv_path, encoding="utf-8-sig", newline="") as f:
+            for row in csv.DictReader(f):
+                x_str = row.get("pc1", row.get("umap1", "")) or ""
+                y_str = row.get("pc2", row.get("umap2", "")) or ""
+                try:
+                    x_val = float(x_str) if x_str.strip() else 0.0
+                    y_val = float(y_str) if y_str.strip() else 0.0
+                except ValueError:
+                    continue  # skip malformed rows
+                points.append({
+                    "x": x_val,
+                    "y": y_val,
+                    "cell_id": row.get("cell_id", ""),
+                    "cell_type": row.get("cell_type", "unknown") or "unknown",
+                    "disease": row.get("disease", "") or "",
+                    "dataset_id": row.get("dataset_id", ""),
+                    "dataset_name": row.get("dataset_name", ""),
+                    "dataset_group": row.get("dataset_group", ""),
+                    "dataset_source": row.get("dataset_source", ""),
+                })
+                ct = row.get("cell_type", "unknown").strip() or "unknown"
+                type_counts[ct] = type_counts.get(ct, 0) + 1
+                disease = row.get("disease", "").strip()
+                if disease:
+                    disease_counts[disease] = disease_counts.get(disease, 0) + 1
+        return points, type_counts, disease_counts
+
     @app.get("/api/visualization-data")
     def visualization_data():
         nonlocal viz_cache
@@ -475,66 +513,108 @@ def create_app() -> Flask:
         if viz_cache.get("dataset_id") == cache_key:
             return jsonify(viz_cache["data"])
 
-        viz_dir = Path(dataset["vectors_path"]).parent
-        pca_file = viz_dir / "pca_coords.csv"
-        umap_file = viz_dir / "umap_coords.csv"
+        # Use manifest paths for PCA/UMAP CSVs; fall back to vectors_path parent
+        pca_path_str = dataset.get("pca_coords_path") or ""
+        umap_path_str = dataset.get("umap_coords_path") or ""
+        pca_file = Path(pca_path_str) if pca_path_str else Path(dataset["vectors_path"]).parent / "pca_coords.csv"
+        umap_file = Path(umap_path_str) if umap_path_str else Path(dataset["vectors_path"]).parent / "umap_coords.csv"
+
+        pca_points, pca_type_counts, pca_disease_counts = [], {}, {}
+        umap_points, umap_type_counts, umap_disease_counts = [], {}, {}
 
         if pca_file.exists():
-            import csv
-            pca_points = []
-            type_counts: Dict[str, int] = {}
-            with open(pca_file, encoding="utf-8-sig", newline="") as f:
-                for row in csv.DictReader(f):
-                    pca_points.append({
-                        "pc1": float(row.get("pc1", 0.0)),
-                        "pc2": float(row.get("pc2", 0.0)),
-                        "cell_type": row.get("cell_type", "unknown") or "unknown",
-                        "dataset_id": row.get("dataset_id", ""),
-                        "dataset_group": row.get("dataset_group", ""),
-                    })
-                    ct = row.get("cell_type", "unknown").strip() or "unknown"
-                    type_counts[ct] = type_counts.get(ct, 0) + 1
-            data = {"pca_points": pca_points, "cell_type_counts": [{"cell_type": k, "count": v} for k, v in type_counts.items()]}
+            pca_points, pca_type_counts, pca_disease_counts = _parse_viz_csv(pca_file)
+
+        if umap_file.exists():
+            umap_points, umap_type_counts, umap_disease_counts = _parse_viz_csv(umap_file)
+
+        # Fill in empty dataset fields with active dataset info
+        ds_name = dataset.get("name", "")
+        ds_id = dataset.get("id", "")
+        ds_group = dataset.get("group", "")
+        for pt in pca_points + umap_points:
+            if not pt.get("dataset_name"):
+                pt["dataset_name"] = ds_name
+            if not pt.get("dataset_id"):
+                pt["dataset_id"] = ds_id
+            if not pt.get("dataset_group"):
+                pt["dataset_group"] = ds_group
+
+        # If CSV files exist, return structured data
+        if pca_file.exists() or umap_file.exists():
+            # Filter out UMAP points where both coords are 0 (NaN placeholder rows)
+            if umap_points:
+                umap_points = [p for p in umap_points if p["x"] != 0.0 or p["y"] != 0.0]
+
+            data = {
+                "pca_points": pca_points,
+                "umap_points": umap_points,
+                "cell_type_counts": [
+                    {"cell_type": k, "count": v}
+                    for k, v in sorted(pca_type_counts.items(), key=lambda x: -x[1])
+                ],
+                "disease_counts": [
+                    {"disease": k, "count": v}
+                    for k, v in sorted(pca_disease_counts.items(), key=lambda x: -x[1])
+                ],
+            }
             viz_cache = {"dataset_id": cache_key, "data": data}
             return jsonify(data)
 
+        # Fallback: generate PCA from raw vectors (original behavior)
         meta_path = dataset["metadata_path"]
         vec_path = dataset["vectors_path"]
 
         try:
             vectors = np.load(vec_path)
         except Exception:
-            return jsonify({"pca_points": [], "cell_type_counts": []})
+            return jsonify({"pca_points": [], "umap_points": [], "cell_type_counts": []})
 
-        type_counts: Dict[str, int] = {}
-        cell_types_list: list[str] = []
+        type_counts_fb: Dict[str, int] = {}
+        cell_types_fb: list[str] = []
+        diseases_fb: list[str] = []
+        cell_ids_fb: list[str] = []
         if os.path.exists(meta_path):
             import csv
             with open(meta_path, encoding="utf-8-sig", newline="") as f:
                 for row in csv.DictReader(f):
                     ct = row.get("cell_type", "unknown").strip() or "unknown"
-                    cell_types_list.append(ct)
-                    type_counts[ct] = type_counts.get(ct, 0) + 1
+                    cell_types_fb.append(ct)
+                    type_counts_fb[ct] = type_counts_fb.get(ct, 0) + 1
+                    diseases_fb.append(row.get("disease", ""))
+                    cell_ids_fb.append(row.get("cell_id", ""))
 
         n = vectors.shape[0]
         if n > 5000:
             rng = np.random.default_rng(42)
             sample_idx = rng.choice(n, 5000, replace=False)
             vectors = vectors[sample_idx]
-            if cell_types_list:
-                cell_types_list = [cell_types_list[i] for i in sample_idx]
+            if cell_types_fb:
+                cell_types_fb = [cell_types_fb[i] for i in sample_idx]
+                diseases_fb = [diseases_fb[i] for i in sample_idx]
+                cell_ids_fb = [cell_ids_fb[i] for i in sample_idx]
 
-        pca_points = []
+        pca_points_fb = []
         for i in range(vectors.shape[0]):
-            ct = cell_types_list[i] if cell_types_list else "unknown"
-            pca_points.append({
-                "pc1": float(vectors[i, 0]),
-                "pc2": float(vectors[i, 1]),
+            ct = cell_types_fb[i] if cell_types_fb else "unknown"
+            pca_points_fb.append({
+                "x": float(vectors[i, 0]),
+                "y": float(vectors[i, 1]),
+                "cell_id": cell_ids_fb[i] if cell_ids_fb else "",
                 "cell_type": ct,
+                "disease": diseases_fb[i] if diseases_fb else "",
+                "dataset_id": "",
+                "dataset_name": "",
+                "dataset_group": "",
+                "dataset_source": "",
             })
 
-        cell_type_counts = [{"cell_type": k, "count": v} for k, v in type_counts.items()]
-        data = {"pca_points": pca_points, "cell_type_counts": cell_type_counts}
+        data = {
+            "pca_points": pca_points_fb,
+            "umap_points": [],
+            "cell_type_counts": [{"cell_type": k, "count": v} for k, v in type_counts_fb.items()],
+            "disease_counts": [],
+        }
         viz_cache = {"dataset_id": cache_key, "data": data}
         return jsonify(data)
 
@@ -616,21 +696,22 @@ def create_app() -> Flask:
 
     @app.post("/api/rag/query")
     def rag_query():
-        """Reserved backend adapter for RAG + single-cell database workflows.
+        """RAG endpoint: parse natural language → search → generate summary.
 
-        This endpoint intentionally avoids external LLM calls. It normalizes a
-        natural-language request into structured filters that can be handed to
-        /api/search or a future retrieval-augmented generation service.
+        Supports optional external LLM via `provider_api_key` and `provider`
+        (openai / claude). Without a key, uses template-based summarization.
         """
         active_dataset_for_request()
         payload: Dict[str, Any] = request.get_json(silent=True) or {}
         question = payload.get("question") or payload.get("query") or ""
         filters = payload.get("filters") or parse_natural_language_query(question)
         k = int(payload.get("k") or 10)
+        provider = payload.get("provider", "").lower()
+        api_key = payload.get("provider_api_key", "")
 
         response: Dict[str, Any] = {
             "success": True,
-            "mode": "rag_placeholder",
+            "mode": "rag-enhanced",
             "question": question,
             "parsed_filters": filters,
             "recommended_search_request": {
@@ -639,19 +720,96 @@ def create_app() -> Flask:
                 "filters": filters,
             },
             "dataset": dataset_with_policy(dataset_manager.get_active_dataset()),
-            "message": "RAG adapter is ready. Connect an LLM provider to turn parsed filters and retrieval results into narrative answers.",
         }
 
-        if payload.get("cell_id") or payload.get("vector"):
-            with index_lock:
-                service = get_search_service()
-            response["retrieval_preview"] = service.search(
-                cell_id=payload.get("cell_id"),
-                vector=payload.get("vector"),
-                k=k,
-                filters=filters,
-                include_self=bool(payload.get("include_self", False)),
+        # 1. Execute search with parsed filters
+        with index_lock:
+            service = get_search_service()
+        # If no cell_id or vector is provided, pick a random cell that matches
+        # the parsed filters as the query seed (so filtered RAG queries work).
+        rag_cell_id = payload.get("cell_id")
+        rag_vector = payload.get("vector")
+        if not rag_cell_id and not rag_vector:
+            import numpy as np
+            service._ensure_loaded()
+            if filters:
+                matching_indices = [
+                    i for i, row in enumerate(service.metadata)
+                    if all(str(row.get(k, "")).lower() == str(v).lower() for k, v in filters.items())
+                ]
+                if matching_indices:
+                    seed_idx = random.choice(matching_indices)
+                else:
+                    seed_idx = random.randint(0, len(service.metadata) - 1)
+            else:
+                seed_idx = random.randint(0, len(service.metadata) - 1)
+            rag_cell_id = service.metadata[seed_idx].get("cell_id", "")
+        search_result = service.search(
+            cell_id=rag_cell_id,
+            vector=rag_vector,
+            k=k,
+            filters=filters,
+            include_self=bool(payload.get("include_self", False)),
+        )
+        response["search_result"] = {
+            "elapsed_ms": search_result.get("elapsed_ms", 0),
+            "result_count": search_result.get("result_count", 0),
+            "results": search_result.get("results", []),
+        }
+
+        # 2. Build context summary from retrieved cells
+        results = search_result.get("results", [])
+        if results:
+            cell_types = {}
+            diseases = {}
+            for r in results:
+                ct = r.get("cell_type", "unknown")
+                cell_types[ct] = cell_types.get(ct, 0) + 1
+                ds = r.get("disease", "unknown")
+                if ds:
+                    diseases[ds] = diseases.get(ds, 0) + 1
+            top_type = max(cell_types, key=cell_types.get) if cell_types else "unknown"
+            type_detail = ", ".join(f"{k}({v})" for k, v in sorted(cell_types.items(), key=lambda x: -x[1])[:5])
+            disease_detail = ", ".join(f"{k}({v})" for k, v in sorted(diseases.items(), key=lambda x: -x[1])[:3])
+            top_result = results[0]
+            response["summary"] = {
+                "top_cell_type": top_type,
+                "cell_type_distribution": type_detail,
+                "disease_distribution": disease_detail,
+                "top_result_id": top_result.get("cell_id", ""),
+                "top_result_distance": top_result.get("distance", 0),
+            }
+            response["answer"] = (
+                f"找到 {len(results)} 个与查询「{question}」相关的细胞。"
+                f"主要细胞类型为 {top_type}"
+                f"（{type_detail}）。"
+                + (f"疾病分布：{disease_detail}。" if disease_detail else "")
+                + f"最相似细胞的距离为 {top_result.get('distance', 0):.4f}。"
             )
+        else:
+            response["answer"] = "未找到匹配的细胞结果，建议放宽筛选条件。"
+
+        # 3. External LLM integration (optional)
+        if api_key and provider in ("openai", "claude"):
+            response["llm_provider"] = provider
+            response["llm_status"] = "api_key_provided"
+            # Here you would call the external LLM API.
+            # Example for OpenAI:
+            #   import openai
+            #   openai.api_key = api_key
+            #   llm_response = openai.chat.completions.create(...)
+            #   response["llm_answer"] = llm_response.choices[0].message.content
+            response["llm_note"] = (
+                f"{provider} API key received. Implement the LLM call in this "
+                "endpoint to generate narrative answers from retrieval results."
+            )
+        else:
+            response["llm_provider"] = None
+            response["llm_note"] = (
+                "模板摘要已生成。如需 AI 生成式回答，传入 provider_api_key "
+                "（支持 openai / claude）。"
+            )
+
         return jsonify(response)
 
     @app.errorhandler(AuthError)

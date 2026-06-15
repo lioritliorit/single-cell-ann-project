@@ -7,8 +7,10 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
     <link rel="stylesheet" href="/static/css/style.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
 </head>
 <body>
+    <!-- ===== Navbar ===== -->
     <nav class="navbar">
         <div class="nav-container">
             <a class="nav-brand" href="#">
@@ -19,11 +21,81 @@
                 <a href="#datasets" class="nav-link active"><i class="fas fa-database"></i> 数据集</a>
                 <a href="#search" class="nav-link"><i class="fas fa-search"></i> 检索</a>
                 <a href="#visualization" class="nav-link"><i class="fas fa-chart-bar"></i> 可视化</a>
+                <a href="#rag" class="nav-link"><i class="fas fa-robot"></i> AI 查询</a>
                 <a href="#evaluation" class="nav-link"><i class="fas fa-chart-line"></i> 性能评测</a>
                 <a href="#status" class="nav-link"><i class="fas fa-info-circle"></i> 索引状态</a>
             </div>
+            <div class="nav-right">
+                <div id="user-status" class="user-status">
+                    <span id="user-display" style="display:none;">
+                        <i class="fas fa-user-circle"></i> <span id="user-name"></span>
+                        <a href="#" id="logout-btn" class="user-action"><i class="fas fa-sign-out-alt"></i></a>
+                    </span>
+                    <a href="#" id="login-btn" class="user-action"><i class="fas fa-sign-in-alt"></i> 登录</a>
+                    <a href="#" id="register-btn" class="user-action" style="margin-left:8px;"><i class="fas fa-user-plus"></i> 注册</a>
+                </div>
+            </div>
         </div>
     </nav>
+
+    <!-- ===== Login Modal ===== -->
+    <div id="login-modal" class="modal" style="display:none;">
+        <div class="modal-backdrop"></div>
+        <div class="modal-content modal-sm">
+            <div class="modal-header">
+                <h3><i class="fas fa-sign-in-alt"></i> 登录</h3>
+                <button class="modal-close" data-modal="login-modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="login-form">
+                    <div class="form-group">
+                        <label>用户名</label>
+                        <input type="text" id="login-username" class="form-control" placeholder="输入用户名" required>
+                    </div>
+                    <div class="form-group" style="margin-top:12px;">
+                        <label>密码</label>
+                        <input type="password" id="login-password" class="form-control" placeholder="输入密码" required>
+                    </div>
+                    <div id="login-error" class="alert alert-error" style="display:none;margin-top:12px;"></div>
+                    <button type="submit" class="btn btn-primary" style="width:100%;margin-top:16px;justify-content:center;">
+                        <i class="fas fa-sign-in-alt"></i> 登录
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== Register Modal ===== -->
+    <div id="register-modal" class="modal" style="display:none;">
+        <div class="modal-backdrop"></div>
+        <div class="modal-content modal-sm">
+            <div class="modal-header">
+                <h3><i class="fas fa-user-plus"></i> 注册</h3>
+                <button class="modal-close" data-modal="register-modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="register-form">
+                    <div class="form-group">
+                        <label>用户名</label>
+                        <input type="text" id="register-username" class="form-control" placeholder="输入用户名" required>
+                    </div>
+                    <div class="form-group" style="margin-top:12px;">
+                        <label>密码</label>
+                        <input type="password" id="register-password" class="form-control" placeholder="输入密码" required>
+                    </div>
+                    <div class="form-group" style="margin-top:12px;">
+                        <label>邮箱（可选）</label>
+                        <input type="email" id="register-email" class="form-control" placeholder="email@example.com">
+                    </div>
+                    <div id="register-error" class="alert alert-error" style="display:none;margin-top:12px;"></div>
+                    <div id="register-success" class="alert alert-success" style="display:none;margin-top:12px;"></div>
+                    <button type="submit" class="btn btn-primary" style="width:100%;margin-top:16px;justify-content:center;">
+                        <i class="fas fa-user-plus"></i> 注册
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
 
     <div class="container">
         <header class="hero">
@@ -37,6 +109,7 @@
             </div>
         </header>
 
+        <!-- ===== Datasets Section ===== -->
         <section id="datasets" class="card">
             <div class="card-header">
                 <i class="fas fa-database"></i>
@@ -113,6 +186,7 @@
             </div>
         </section>
 
+        <!-- ===== Search Section ===== -->
         <section id="search" class="card">
             <div class="card-header">
                 <i class="fas fa-search"></i>
@@ -123,7 +197,7 @@
                     <div class="form-row">
                         <div class="form-group flex-grow">
                             <label for="cell-id-input"><i class="fas fa-tag"></i> 细胞 ID</label>
-                            <input type="text" id="cell-id-input" class="form-control" placeholder="输入当前数据集中的 cell_id">
+                            <input type="text" id="cell-id-input" class="form-control" placeholder="输入当前数据集中的 cell_id，或在可视化图中点击细胞">
                         </div>
                         <div class="form-group" style="width:120px;">
                             <label for="k-input"><i class="fas fa-list-ol"></i> Top-K</label>
@@ -224,13 +298,66 @@
             </div>
         </section>
 
+        <!-- ===== Visualization Section ===== -->
         <section id="visualization" class="card">
             <div class="card-header">
                 <i class="fas fa-chart-bar"></i>
-                <h2>数据可视化</h2>
+                <h2>交互式数据可视化</h2>
+                <span class="card-badge">点击图中细胞可自动检索</span>
             </div>
             <div class="card-body">
-                <div class="chart-grid">
+                <!-- 可视化顶部控制栏 -->
+                <div class="viz-controls">
+                    <div class="viz-tabs">
+                        <button class="viz-tab active" data-view="pca"><i class="fas fa-circle"></i> PCA</button>
+                        <button class="viz-tab" data-view="umap"><i class="fas fa-project-diagram"></i> UMAP</button>
+                    </div>
+                    <div class="viz-filters">
+                        <div class="form-group" style="width:180px;">
+                            <label>着色方式</label>
+                            <select id="viz-color-mode" class="form-control form-control-sm">
+                                <option value="cell_type">细胞类型</option>
+                                <option value="disease">疾病状态</option>
+                                <option value="dataset_group">数据分组</option>
+                            </select>
+                        </div>
+                        <div class="form-group" style="width:180px;">
+                            <label>细胞类型筛选</label>
+                            <select id="cell-type-filter-viz" class="form-control form-control-sm">
+                                <option value="">全部类型</option>
+                            </select>
+                        </div>
+                        <div class="form-group form-group-btn">
+                            <label>&nbsp;</label>
+                            <button id="viz-reset-btn" class="btn btn-outline btn-sm">
+                                <i class="fas fa-undo"></i> 重置视图
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- PCA / UMAP 散点图 -->
+                <div class="viz-plot-container">
+                    <div id="plotly-scatter" class="viz-plot"></div>
+                </div>
+
+                <!-- 选中细胞信息条 -->
+                <div id="selected-point-info" class="selected-point-info" style="display:none;">
+                    <i class="fas fa-crosshairs"></i>
+                    <span>选中细胞: <code id="selected-cell-id">-</code></span>
+                    <span class="sep">|</span>
+                    <span>类型: <strong id="selected-cell-type">-</strong></span>
+                    <span class="sep">|</span>
+                    <span>疾病: <span id="selected-disease">-</span></span>
+                    <span class="sep">|</span>
+                    <span>数据集: <span id="selected-dataset">-</span></span>
+                    <button id="search-selected-btn" class="btn btn-primary btn-sm" style="margin-left:auto;">
+                        <i class="fas fa-search"></i> 检索相似细胞
+                    </button>
+                </div>
+
+                <!-- 细胞类型分布图和旧版统计图 -->
+                <div class="chart-grid" style="margin-top:24px;">
                     <div class="chart-box">
                         <h3><i class="fas fa-chart-pie"></i> 细胞类型分布</h3>
                         <div class="chart-wrapper">
@@ -238,19 +365,150 @@
                         </div>
                     </div>
                     <div class="chart-box">
-                        <h3><i class="fas fa-circle"></i> PCA 二维投影</h3>
-                        <div class="chart-wrapper">
-                            <canvas id="pca-scatter"></canvas>
-                        </div>
-                        <div class="chart-controls">
-                            <label for="cell-type-filter-viz">高亮细胞类型:</label>
-                            <select id="cell-type-filter-viz" class="form-control form-control-sm"></select>
+                        <h3><i class="fas fa-heartbeat"></i> 肝病相关统计</h3>
+                        <div class="liver-stats" id="liver-stats-container">
+                            <p style="color:#999;text-align:center;padding:40px;">加载中...</p>
                         </div>
                     </div>
                 </div>
             </div>
         </section>
 
+        <!-- ===== RAG Query Section ===== -->
+        <section id="rag" class="card">
+            <div class="card-header">
+                <i class="fas fa-robot"></i>
+                <h2>AI 自然语言查询</h2>
+                <span class="card-badge">RAG 增强检索</span>
+            </div>
+            <div class="card-body">
+                <div class="rag-description">
+                    <p>输入自然语言描述，系统会自动解析查询意图并执行检索。例如：</p>
+                    <div class="rag-examples">
+                        <code>"查找肝病组织中的肝细胞"</code>
+                        <code>"Show me T cells from healthy liver"</code>
+                        <code>"检索库普弗细胞，肝硬化样本"</code>
+                        <code>"Find hepatocyte cells from liver fibrosis"</code>
+                    </div>
+                </div>
+                <form id="rag-form" class="search-form">
+                    <div class="form-row">
+                        <div class="form-group flex-grow">
+                            <label for="rag-query"><i class="fas fa-comment"></i> 查询语句</label>
+                            <input type="text" id="rag-query" class="form-control" placeholder="例如：查找肝病组织中的肝细胞">
+                        </div>
+                        <div class="form-group" style="width:120px;">
+                            <label for="rag-k"><i class="fas fa-list-ol"></i> Top-K</label>
+                            <input type="number" id="rag-k" class="form-control" value="5" min="1" max="50">
+                        </div>
+                        <div class="form-group form-group-btn">
+                            <label>&nbsp;</label>
+                            <button type="submit" class="btn btn-primary" id="rag-btn">
+                                <i class="fas fa-robot"></i> AI 查询
+                            </button>
+                        </div>
+                    </div>
+                    <div class="form-row" style="margin-top:8px;">
+                        <details style="font-size:0.85rem;color:#888;">
+                            <summary style="cursor:pointer;"><i class="fas fa-key"></i> 接入外部 AI（可选）</summary>
+                            <div style="display:flex;gap:12px;margin-top:8px;align-items:flex-end;flex-wrap:wrap;">
+                                <div class="form-group" style="width:160px;">
+                                    <label>供应商</label>
+                                    <select id="rag-provider" class="form-control form-control-sm">
+                                        <option value="">无（本地模板）</option>
+                                        <option value="openai">OpenAI</option>
+                                        <option value="claude">Claude</option>
+                                    </select>
+                                </div>
+                                <div class="form-group flex-grow" style="min-width:250px;">
+                                    <label>API Key</label>
+                                    <input type="password" id="rag-api-key" class="form-control form-control-sm" placeholder="sk-...">
+                                </div>
+                            </div>
+                        </details>
+                    </div>
+                </form>
+
+                <div id="rag-loading" class="loading" style="display:none;">
+                    <div class="spinner"></div>
+                    <p>正在解析查询并执行检索...</p>
+                </div>
+
+                <div id="rag-result" style="display:none;">
+                    <div class="rag-parsed">
+                        <h4><i class="fas fa-brain"></i> 语义解析结果</h4>
+                        <div class="rag-parsed-grid">
+                            <div class="rag-parsed-item">
+                                <span class="rag-label">原始查询</span>
+                                <span id="rag-original-query" class="rag-value">-</span>
+                            </div>
+                            <div class="rag-parsed-item">
+                                <span class="rag-label">解析模式</span>
+                                <span id="rag-mode" class="rag-value">-</span>
+                            </div>
+                            <div class="rag-parsed-item">
+                                <span class="rag-label">细胞类型</span>
+                                <span id="rag-parsed-cell-type" class="rag-value">-</span>
+                            </div>
+                            <div class="rag-parsed-item">
+                                <span class="rag-label">疾病状态</span>
+                                <span id="rag-parsed-disease" class="rag-value">-</span>
+                            </div>
+                            <div class="rag-parsed-item">
+                                <span class="rag-label">数据分组</span>
+                                <span id="rag-parsed-group" class="rag-value">-</span>
+                            </div>
+                            <div class="rag-parsed-item">
+                                <span class="rag-label">检索模式</span>
+                                <span id="rag-search-mode" class="rag-value">-</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="rag-results-container" style="margin-top:16px;display:none;">
+                        <h4><i class="fas fa-table"></i> 检索结果</h4>
+                        <div class="rag-result-info" id="rag-result-info"></div>
+
+                        <!-- AI 回答 -->
+                        <div id="rag-answer-box" class="rag-answer" style="display:none;">
+                            <h4><i class="fas fa-comment-dots"></i> AI 分析结果</h4>
+                            <p id="rag-answer-text"></p>
+                        </div>
+
+                        <!-- 检索摘要 -->
+                        <div id="rag-summary-box" class="rag-summary" style="display:none;">
+                            <h5><i class="fas fa-chart-simple"></i> 检索摘要</h5>
+                            <div class="rag-summary-grid" id="rag-summary-grid"></div>
+                        </div>
+
+                        <div class="table-wrapper">
+                            <table class="table" id="rag-results-table">
+                                <thead>
+                                    <tr>
+                                        <th>排名</th>
+                                        <th>数据集</th>
+                                        <th>细胞 ID</th>
+                                        <th>细胞类型</th>
+                                        <th>距离</th>
+                                        <th>疾病状态</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="rag-results-body"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div id="rag-message" class="rag-message" style="margin-top:12px;"></div>
+                </div>
+
+                <div id="rag-error" class="alert alert-error" style="display:none;margin-top:12px;">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <span id="rag-error-text"></span>
+                </div>
+            </div>
+        </section>
+
+        <!-- ===== Evaluation Section ===== -->
         <section id="evaluation" class="card">
             <div class="card-header">
                 <i class="fas fa-chart-line"></i>
@@ -310,6 +568,7 @@
             </div>
         </section>
 
+        <!-- ===== Index Status Section ===== -->
         <section id="status" class="card">
             <div class="card-header">
                 <i class="fas fa-info-circle"></i>
