@@ -890,6 +890,12 @@ def create_app() -> Flask:
     def handle_runtime_error(error: RuntimeError):
         return jsonify({"error": "runtime_error", "message": str(error)}), 500
 
+    @app.errorhandler(Exception)
+    def handle_unhandled_error(error: Exception):
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": "internal_error", "message": str(error)}), 500
+
     return app
 
 
@@ -898,4 +904,4 @@ app = create_app()
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", "5000"))
-    app.run(host="0.0.0.0", port=port, debug=True)
+    app.run(host="0.0.0.0", port=port, debug=True, use_reloader=False)
