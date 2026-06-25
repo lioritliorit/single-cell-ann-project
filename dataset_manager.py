@@ -46,6 +46,7 @@ class DatasetManager:
         self.upload_dir = self.base_dir / "uploads"
         self.processed_dir = self.base_dir / "processed"
         self.joint_dir = self.base_dir / "joint"
+        self.performance_dir = self.base_dir / "performance_metrics"
         self.manifest_path = self.base_dir / "manifest.json"
         self.default_vectors_path = default_vectors_path
         self.default_metadata_path = default_metadata_path
@@ -58,6 +59,7 @@ class DatasetManager:
         self.upload_dir.mkdir(parents=True, exist_ok=True)
         self.processed_dir.mkdir(parents=True, exist_ok=True)
         self.joint_dir.mkdir(parents=True, exist_ok=True)
+        self.performance_dir.mkdir(parents=True, exist_ok=True)
         if not self.manifest_path.exists():
             self._write_manifest({
                 "active_dataset_id": "default",
@@ -100,6 +102,8 @@ class DatasetManager:
             "tissues": summary["tissues"],
             "tags": ["regular"],
             "component_dataset_ids": ["default"],
+            "performance_metrics_path": None,
+            "performance_evaluated_at": None,
         }
         manifest["active_dataset_id"] = manifest.get("active_dataset_id") or "default"
         manifest["updated_at"] = self._now()
@@ -199,7 +203,7 @@ class DatasetManager:
             raise DatasetError(f"Unknown dataset_id: {dataset_id}")
 
         dataset = datasets.pop(dataset_id)
-        for key in ("h5ad_path", "vectors_path", "metadata_path", "faiss_index_path", "hnsw_index_path"):
+        for key in ("h5ad_path", "vectors_path", "metadata_path", "faiss_index_path", "hnsw_index_path", "performance_metrics_path"):
             path = dataset.get(key)
             if path:
                 self._safe_remove(Path(path))
@@ -296,6 +300,8 @@ class DatasetManager:
             "tissues": summary["tissues"],
             "tags": ["joint", group],
             "component_dataset_ids": dataset_ids,
+            "performance_metrics_path": None,
+            "performance_evaluated_at": None,
         }
 
         manifest = self._read_manifest()
@@ -372,7 +378,39 @@ class DatasetManager:
             "tissues": summary["tissues"],
             "tags": combined_tags,
             "component_dataset_ids": [dataset_id],
+            "performance_metrics_path": None,
+            "performance_evaluated_at": None,
         }
+
+    def save_performance_metrics(self, dataset_id: str, metrics: Dict[str, Any]) -> None:
+        dataset = self.get_dataset(dataset_id)
+        metrics_file_path = self.performance_dir / f"{dataset_id}_metrics.json"
+        
+        with open(metrics_file_path, "w", encoding="utf-8") as f:
+            json.dump(metrics, f, ensure_ascii=False, indent=2)
+        
+        manifest = self._read_manifest()
+        if dataset_id in manifest["datasets"]:
+            manifest["datasets"][dataset_id]["performance_metrics_path"] = str(metrics_file_path)
+            manifest["datasets"][dataset_id]["performance_evaluated_at"] = self._now()
+            self._write_manifest(manifest)
+        else:
+            raise DatasetError(f"Dataset {dataset_id} not found in manifest to save performance metrics.")
+
+    def load_performance_metrics(self, dataset_id: str) -> Optional[Dict[str, Any]]:
+        dataset = self.get_dataset(dataset_id)
+        metrics_file_path_str = dataset.get("performance_metrics_path")
+        evaluated_at = dataset.get("performance_evaluated_at")
+
+        if metrics_file_path_str:
+            metrics_file_path = Path(metrics_file_path_str)
+            if metrics_file_path.exists():
+                with open(metrics_file_path, "r", encoding="utf-8") as f:
+                    return {
+                        "metrics": json.load(f),
+                        "evaluated_at": evaluated_at
+                    }
+        return None
 
     @staticmethod
     def _read_h5ad(path: str) -> Any:

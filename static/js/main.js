@@ -16,6 +16,11 @@ const state = {
     selectedPoint: null,
     authToken: null,
     currentUser: null,
+    // Chart instances for performance evaluation
+    buildTimeChart: null,
+    queryTimeChart: null,
+    recallChart: null,
+    memoryChart: null,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -61,7 +66,7 @@ async function refreshAll() {
     await loadIndexStatus();
     await loadCellTypes();
     await loadVisualizationData();
-    await loadEvaluationData();
+    await loadDynamicPerformanceEvaluation();
 }
 
 // ===== Navigation =====
@@ -238,6 +243,161 @@ async function logout() {
     state.currentUser = null;
     localStorage.removeItem("auth_token");
     updateAuthUI(null);
+}
+
+// ===== Dynamic Performance Evaluation =====
+async function loadDynamicPerformanceEvaluation() {
+    const tableBody = $("evaluation-table-body");
+    const loadingIndicator = $("evaluation-loading");
+    const contentContainer = $("evaluation-content");
+
+    if (tableBody) tableBody.innerHTML = "";
+    if (loadingIndicator) loadingIndicator.style.display = "block";
+    if (contentContainer) contentContainer.style.display = "none"; // Hide content while loading
+
+    try {
+        const data = await apiGet("/api/performance-evaluation");
+        renderPerformanceEvaluationTable(data.evaluation_results, data.dataset_id);
+        if (contentContainer) contentContainer.style.display = "block"; // Show content after loading
+        renderPerformanceCharts(data.evaluation_results, data.dataset_id);
+    } catch (err) {
+        console.error("Failed to load dynamic performance evaluation:", err);
+        if (tableBody) tableBody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:#f44336;">加载性能评测失败: ${escapeHtml(err.message)}</td></tr>`;
+    } finally {
+        if (loadingIndicator) loadingIndicator.style.display = "none";
+    }
+}
+
+function renderPerformanceEvaluationTable(results, datasetId) {
+    const tableBody = $("evaluation-table-body");
+    if (!tableBody) return;
+
+    tableBody.innerHTML = "";
+
+    if (Object.keys(results).length === 0) {
+        tableBody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:#999; padding:32px;">暂无性能评测数据</td></tr>`;
+        return;
+    }
+
+    for (const methodKey in results) {
+        const metrics = results[methodKey];
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+            <td><strong>${escapeHtml(datasetId)}</strong></td>
+            <td>${escapeHtml(metrics.method || methodKey)}</td>
+            <td>${metrics.build_time.toFixed(4)}</td>
+            <td>${metrics.search_time.toFixed(4)}</td>
+            <td>${metrics.memory_mb.toFixed(2)}</td>
+            <td>${metrics.recall.toFixed(4)}</td>
+            <td>${metrics.precision.toFixed(4)}</td>
+        `;
+        tableBody.appendChild(tr);
+        }
+}
+
+function renderPerformanceCharts(results, datasetId) {
+    const methodColors = {
+        "faiss_flat": "#1565c0",
+        "faiss_ivfflat": "#2e7d32",
+        "faiss_ivfpq": "#e65100",
+        "faiss_hnsw": "#6a1b9a",
+        "hnsw_self": "#c62828"
+    };
+    const methodDisplayNames = {
+        "faiss_flat": "FAISS_Flat",
+        "faiss_ivfflat": "FAISS_IVFFlat",
+        "faiss_ivfpq": "FAISS_IVFPQ",
+        "faiss_hnsw": "FAISS_HNSW",
+        "hnsw_self": "HNSW_self"
+    };
+    const methods = Object.keys(results);
+
+    // Helper to destroy existing chart if it exists
+    const destroyChart = (chart) => { if (chart) chart.destroy(); return null; };
+
+    // Build Time Chart
+    state.buildTimeChart = destroyChart(state.buildTimeChart);
+    state.buildTimeChart = new Chart($("build-time-chart").getContext("2d"), {
+        type: "bar",
+        data: {
+            labels: methods.map(m => methodDisplayNames[m] || m),
+            datasets: [{
+                label: `构建时间 (${escapeHtml(datasetId)})`,
+                data: methods.map(m => results[m]?.build_time || 0),
+                backgroundColor: methods.map(m => methodColors[m] || '#9e9e9e'),
+                borderRadius: 4,
+            }],
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: { y: { title: { display: true, text: "构建时间 (s)" }, beginAtZero: true } },
+            layout: { padding: { right: 16 } },
+        },
+    });
+
+    // Query Time Chart
+    state.queryTimeChart = destroyChart(state.queryTimeChart);
+    state.queryTimeChart = new Chart($("query-time-chart").getContext("2d"), {
+        type: "bar",
+        data: {
+            labels: methods.map(m => methodDisplayNames[m] || m),
+            datasets: [{
+                label: `查询时间 (${escapeHtml(datasetId)})`,
+                data: methods.map(m => results[m]?.search_time || 0),
+                backgroundColor: methods.map(m => methodColors[m] || '#9e9e9e'),
+                borderRadius: 4,
+            }],
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: { y: { title: { display: true, text: "查询时间 (s)" }, beginAtZero: true } },
+            layout: { padding: { right: 16 } },
+        },
+    });
+
+    // Recall Chart
+    state.recallChart = destroyChart(state.recallChart);
+    state.recallChart = new Chart($("recall-chart").getContext("2d"), {
+        type: "bar",
+        data: {
+            labels: methods.map(m => methodDisplayNames[m] || m),
+            datasets: [{
+                label: `召回率 (${escapeHtml(datasetId)})`,
+                data: methods.map(m => results[m]?.recall || 0),
+                backgroundColor: methods.map(m => methodColors[m] || '#9e9e9e'),
+                borderRadius: 4,
+            }],
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: { y: { title: { display: true, text: "召回率" }, min: 0, max: 1 } },
+            layout: { padding: { right: 16 } },
+        },
+    });
+
+    // Memory Chart
+    state.memoryChart = destroyChart(state.memoryChart);
+    state.memoryChart = new Chart($("memory-chart").getContext("2d"), {
+        type: "bar",
+        data: {
+            labels: methods.map(m => methodDisplayNames[m] || m),
+            datasets: [{
+                label: `内存占用 (${escapeHtml(datasetId)})`,
+                data: methods.map(m => results[m]?.memory_mb || 0),
+                backgroundColor: methods.map(m => methodColors[m] || '#9e9e9e'),
+                borderRadius: 4,
+            }],
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: { y: { title: { display: true, text: "内存 (MB)" }, beginAtZero: true } },
+            layout: { padding: { right: 16 } },
+        },
+    });
 }
 
 // ===== Index Status =====
@@ -1186,158 +1346,7 @@ let queryTimeChart = null;
 let recallChart = null;
 let memoryChart = null;
 
-async function loadEvaluationData() {
-    try {
-        const data = await apiGet("/api/evaluation-data");
-        renderEvaluationCharts(data);
-        renderEvaluationTable(data);
-        $("evaluation-loading").style.display = "none";
-        $("evaluation-content").style.display = "block";
-    } catch (err) {
-        console.warn("Failed to load evaluation data:", err);
-        $("evaluation-loading").innerHTML = `<p><i class="fas fa-exclamation-triangle"></i> 无法加载评测数据</p>`;
-    }
-}
 
-function renderEvaluationCharts(data) {
-    const evaluations = data.evaluations || [];
-    const datasetLabels = evaluations.map(d => d.dataset_name || d.dataset_id);
-    const methodColors = {
-        "faiss_flat": "#1565c0",
-        "faiss_ivfflat": "#2e7d32",
-        "faiss_ivfpq": "#e65100",
-        "faiss_hnsw": "#6a1b9a",
-        "hnsw_self": "#c62828"
-    };
-    const methodDisplayNames = {
-        "faiss_flat": "FAISS_Flat",
-        "faiss_ivfflat": "FAISS_IVFFlat",
-        "faiss_ivfpq": "FAISS_IVFPQ",
-        "faiss_hnsw": "FAISS_HNSW",
-        "hnsw_self": "HNSW_self"
-    };
-
-    const methods = ["faiss_flat", "faiss_ivfflat", "faiss_ivfpq", "faiss_hnsw", "hnsw_self"];
-
-    // Build time chart
-    if (buildTimeChart) buildTimeChart.destroy();
-    buildTimeChart = new Chart($("build-time-chart").getContext("2d"), {
-        type: "bar",
-        data: {
-            labels: datasetLabels,
-            datasets: methods.map((mk) => ({
-                label: methodDisplayNames[mk],
-                data: evaluations.map(ds => (ds.metrics?.[mk]?.build_time) || 0),
-                backgroundColor: methodColors[mk],
-                borderRadius: 4,
-            })),
-        },
-        options: {
-            responsive: true, maintainAspectRatio: false,
-            plugins: { legend: { display: true, position: "bottom", labels: { boxWidth: 10, usePointStyle: true } } },
-            scales: { y: { title: { display: true, text: "构建时间 (s)" }, beginAtZero: true } },
-            layout: { padding: { right: 16 } },
-        },
-    });
-
-    // Query time chart
-    if (queryTimeChart) queryTimeChart.destroy();
-    queryTimeChart = new Chart($("query-time-chart").getContext("2d"), {
-        type: "bar",
-        data: {
-            labels: datasetLabels,
-            datasets: methods.map((mk) => ({
-                label: methodDisplayNames[mk],
-                data: evaluations.map(ds => (ds.metrics?.[mk]?.search_time) || 0),
-                backgroundColor: methodColors[mk],
-                borderRadius: 4,
-            })),
-        },
-        options: {
-            responsive: true, maintainAspectRatio: false,
-            plugins: { legend: { display: true, position: "bottom", labels: { boxWidth: 10, usePointStyle: true } } },
-            scales: { y: { title: { display: true, text: "查询时间 (s)" }, beginAtZero: true } },
-            layout: { padding: { right: 16 } },
-        },
-    });
-
-    // Recall chart
-    if (recallChart) recallChart.destroy();
-    recallChart = new Chart($("recall-chart").getContext("2d"), {
-        type: "bar",
-        data: {
-            labels: datasetLabels,
-            datasets: methods.map((mk) => ({
-                label: methodDisplayNames[mk],
-                data: evaluations.map(ds => (ds.metrics?.[mk]?.recall) || 0),
-                backgroundColor: methodColors[mk],
-                borderRadius: 4,
-            })),
-        },
-        options: {
-            responsive: true, maintainAspectRatio: false,
-            plugins: { legend: { display: true, position: "bottom", labels: { boxWidth: 10, usePointStyle: true } } },
-            scales: { y: { title: { display: true, text: "召回率" }, min: 0, max: 1 } },
-            layout: { padding: { right: 16 } },
-        },
-    });
-
-    // Memory chart
-    if (memoryChart) memoryChart.destroy();
-    memoryChart = new Chart($("memory-chart").getContext("2d"), {
-        type: "bar",
-        data: {
-            labels: datasetLabels,
-            datasets: methods.map((mk) => ({
-                label: methodDisplayNames[mk],
-                data: evaluations.map(ds => {
-                    const mem = (ds.metrics?.[mk]?.memory_mb) || 0;
-                    return mem >= 0 ? mem : 0;
-                }),
-                backgroundColor: methodColors[mk],
-                borderRadius: 4,
-            })),
-        },
-        options: {
-            responsive: true, maintainAspectRatio: false,
-            plugins: { legend: { display: true, position: "bottom", labels: { boxWidth: 10, usePointStyle: true } } },
-            scales: { y: { title: { display: true, text: "内存 (MB)" }, beginAtZero: true } },
-            layout: { padding: { right: 16 } },
-        },
-    });
-}
-
-function renderEvaluationTable(data) {
-    const tbody = $("evaluation-table-body");
-    tbody.innerHTML = "";
-    const evaluations = data.evaluations || [];
-
-    if (!evaluations.length) {
-        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:#999; padding:32px;">暂无评测数据</td></tr>`;
-        return;
-    }
-
-    evaluations.forEach((ds) => {
-        const metrics = ds.metrics || {};
-        const methods = ["faiss_flat", "faiss_ivfflat", "faiss_ivfpq", "faiss_hnsw", "hnsw_self"];
-        methods.forEach((methodKey, idx) => {
-            const result = metrics[methodKey];
-            if (!result) return;
-            const tr = document.createElement("tr");
-            const mem = (result?.memory_mb) || 0;
-            tr.innerHTML = `
-                <td>${idx === 0 ? `<strong>${escapeHtml(ds.dataset_name || ds.dataset_id)}</strong>` : ""}</td>
-                <td>${escapeHtml(result?.method || "-")}</td>
-                <td>${formatOptionalNumber(result?.build_time, 4)}</td>
-                <td>${formatOptionalNumber(result?.search_time, 4)}</td>
-                <td>${formatOptionalNumber(mem >= 0 ? mem : 0, 2)}</td>
-                <td>${formatOptionalNumber(result?.recall, 4)}</td>
-                <td>${formatOptionalNumber(result?.precision, 4)}</td>
-            `;
-            tbody.appendChild(tr);
-        });
-    });
-}
 
 // ===== Utility =====
 function formatNumber(value) {

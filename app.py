@@ -11,11 +11,13 @@ from typing import Any, Callable, Dict, Optional
 import numpy as np
 import requests
 from flask import Flask, jsonify, render_template, request
+from datetime import datetime
 
 from ann_search_service import SearchInputError, SingleCellANNService
 from auth_manager import AuthError, AuthManager
 from dataset_manager import DatasetError, DatasetManager
 from hnsw_search_service import HNSWSearchService
+from performance_evaluator import PerformanceEvaluator
 
 # ---- 检索调试日志 ----
 _search_logger = logging.getLogger("search_debug")
@@ -706,6 +708,74 @@ def create_app() -> Flask:
             with open(eval_file, encoding="utf-8") as f:
                 return jsonify(json.load(f))
         return jsonify({"datasets": []})
+
+    @app.get("/api/performance-evaluation")
+    def get_performance_evaluation():
+        dataset = active_dataset_for_request()
+        force_recompute = request.args.get("force", "false").lower() == "true"
+        
+        # 1. Try to load from cache
+        if not force_recompute:
+            cached_data = dataset_manager.load_performance_metrics(dataset["id"])
+            if cached_data:
+                return jsonify({
+                    "dataset_id": dataset["id"],
+                    "dataset_name": dataset["name"],
+                    "group": dataset["group"],
+                    "cell_count": dataset["cell_count"],
+                    "dimension": dataset["dimension"],
+                    "evaluation_results": cached_data["metrics"],
+                    "evaluated_at": cached_data.get("evaluated_at"),
+                    "source": "cache"
+                })
+
+        # 2. If not cached or forced, recompute and save
+        try:
+            vectors = np.load(dataset["vectors_path"])
+            sample_size = len(vectors)
+            query_size = 50 # Default query size
+
+            if len(vectors) > sample_size:
+                rng = np.random.default_rng(42)
+                indices = rng.choice(len(vectors), size=sample_size, replace=False)
+                index_vectors = vectors[indices]
+            else:
+                index_vectors = vectors
+
+            if len(vectors) > sample_size + query_size:
+                queries = vectors[sample_size:sample_size+query_size]
+            else:
+                rng = np.random.default_rng(42)
+                query_indices = rng.choice(len(index_vectors), size=min(query_size, len(index_vectors)), replace=False)
+                queries = index_vectors[query_indices]
+            
+            evaluator = PerformanceEvaluator(index_vectors, queries)
+            evaluator.run_full_evaluation(k=10) # Using default K=10 as per user request
+            
+            # Clean up indices from results before saving
+            cleaned_results = {}
+            for method, result in evaluator.results.items():
+                cleaned_result = dict(result)
+                cleaned_result.pop('indices', None)
+                cleaned_results[method] = cleaned_result
+
+            # Save to cache
+            dataset_manager.save_performance_metrics(dataset["id"], cleaned_results)
+
+            return jsonify({
+                "dataset_id": dataset["id"],
+                "dataset_name": dataset["name"],
+                "group": dataset["group"],
+                "cell_count": dataset["cell_count"],
+                "dimension": dataset["dimension"],
+                "evaluation_results": cleaned_results,
+                "evaluated_at": datetime.utcnow().isoformat() + "Z",
+                "source": "recomputed"
+            })
+        except FileNotFoundError:
+            return jsonify({"error": "dat-not_found", "message": "当前数据集的向量或元数据文件未找到，无法进行性能评估。"}), 404
+        except Exception as e:
+            return jsonify({"error": "performance_evaluation_failed", "message": str(e)}), 500
 
     @staticmethod
     def _call_llm(provider: str, api_key: str, question: str,
