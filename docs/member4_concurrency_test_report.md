@@ -13,20 +13,20 @@
 
 - 后端：Flask
 - 数据：默认内置单细胞 PCA 向量、元数据和 FAISS 索引
-- 压测脚本：`scripts/api_stress_test.py`
+- 压测脚本：`tests/api_stress_test.py`
 - 默认参数：100 个请求，8 个并发 worker，Top-K=5
 
 ## 测试命令
 
 ```powershell
 python app.py
-python scripts/api_stress_test.py --url http://127.0.0.1:5000 --requests 100 --workers 8
+python tests/api_stress_test.py --url http://127.0.0.1:5000 --requests 100 --workers 8
 ```
 
 可调整参数：
 
 ```powershell
-python scripts/api_stress_test.py --requests 500 --workers 16 --k 10
+python tests/api_stress_test.py --requests 500 --workers 16 --k 10
 ```
 
 ## 输出指标

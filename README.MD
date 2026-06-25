@@ -138,8 +138,10 @@ ef=150                  # 查询时搜索范围
 4. FAISS_HNSW - FAISS 官方实现
 5. HNSW_self - 本项目自实现
 
----
-
+### 功能测试
+```bash
+python tests/run_all_tests.py
+```
 ## 前端功能
 
 ### 主要界面

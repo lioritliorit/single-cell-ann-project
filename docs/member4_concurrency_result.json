@@ -1,0 +1,18 @@
+{
+  "url": "http://127.0.0.1:5000/api/search",
+  "requests": 50,
+  "workers": 4,
+  "success": 50,
+  "failed": 0,
+  "success_rate": 1.0,
+  "total_elapsed_seconds": 0.288,
+  "throughput_rps": 173.704,
+  "latency_ms": {
+    "min": 6.261,
+    "avg": 21.945,
+    "p50": 22.717,
+    "p95": 32.753,
+    "max": 37.093
+  },
+  "failed_statuses": []
+}

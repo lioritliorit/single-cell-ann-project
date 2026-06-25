@@ -1,5 +1,9 @@
 import os
+import sys
 import tempfile
+
+# 添加项目根目录到路径
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 def build_client():
@@ -84,7 +88,16 @@ def main() -> None:
         response = client.post("/api/auth/logout", headers={"Authorization": f"Bearer {user_token}"})
         assert_status(response, 200)
     finally:
-        temp_dir.cleanup()
+        # Windows下清理临时目录可能会有权限问题，这里用更安全的方式
+        try:
+            temp_dir.cleanup()
+        except Exception:
+            # Windows可能会有文件锁定问题，忽略清理错误
+            import shutil
+            try:
+                shutil.rmtree(temp_dir.name, ignore_errors=True)
+            except Exception:
+                pass
 
     print("member4 API tests passed")
 

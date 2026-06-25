@@ -131,14 +131,14 @@ Content-Type: application/json
 功能测试：
 
 ```powershell
-python test_member4_api.py
+python tests/test_member4_api.py
 ```
 
 并发压测：
 
 ```powershell
 python app.py
-python scripts/api_stress_test.py --url http://127.0.0.1:5000 --requests 100 --workers 8
+python tests/api_stress_test.py --url http://127.0.0.1:5000 --requests 100 --workers 8
 ```
 
 压测输出：

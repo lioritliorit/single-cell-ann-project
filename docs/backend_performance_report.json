@@ -1,0 +1,48 @@
+{
+  "test_time": "2026-06-25 17:46:55",
+  "base_url": "http://127.0.0.1:5000",
+  "results": {
+    "health_check": {
+      "test_name": "health_check",
+      "total_requests": 100,
+      "success_count": 100,
+      "success_rate": 1.0,
+      "latency_ms": {
+        "min": 3.501,
+        "avg": 15.852,
+        "p50": 15.487,
+        "p95": 29.262,
+        "p99": 30.419,
+        "max": 31.628
+      }
+    },
+    "index_status": {
+      "test_name": "index_status",
+      "total_requests": 100,
+      "success_count": 100,
+      "success_rate": 1.0,
+      "latency_ms": {
+        "min": 4.822,
+        "avg": 18.295,
+        "p50": 15.992,
+        "p95": 31.422,
+        "p99": 31.703,
+        "max": 33.781
+      }
+    },
+    "search": {
+      "test_name": "search",
+      "total_requests": 100,
+      "success_count": 100,
+      "success_rate": 1.0,
+      "latency_ms": {
+        "min": 6.437,
+        "avg": 28.993,
+        "p50": 30.765,
+        "p95": 34.562,
+        "p99": 36.697,
+        "max": 37.048
+      }
+    }
+  }
+}

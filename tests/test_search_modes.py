@@ -2,7 +2,7 @@
 检索模式测试脚本 — 验证成员3实现的三种检索模式。
 
 运行方式:
-    python test_search_modes.py
+    python tests/test_search_modes.py
 
 覆盖:
   1. 普通检索 (normal) — 无过滤 Top-K
@@ -22,6 +22,17 @@ from typing import Any, Dict, List
 
 import numpy as np
 
+import io
+# Ensure stdout can handle UTF-8 characters for consistent output across different environments.
+# This is particularly important on Windows where default encoding might be different (e.g., GBK).
+if sys.stdout.encoding != 'utf-8':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+if sys.stderr.encoding != 'utf-8':
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+
+# 添加项目根目录到路径
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 
 # ---------------------------------------------------------------------------
 # 测试工具
@@ -38,11 +49,16 @@ def make_temp_dir() -> str:
 
 
 def log_test(name: str, passed: bool, detail: str = "") -> None:
-    status = "✅ PASS" if passed else "❌ FAIL"
+    # 用 ASCII 替代 emoji 避免编码问题
+    status = "[PASS]" if passed else "[FAIL]"
     msg = f"  {status} | {name}"
     if detail:
         msg += f"  ({detail})"
-    print(msg)
+    try:
+        print(msg)
+    except UnicodeEncodeError:
+        # 如果还是有编码问题，直接打印不包含特殊字符的版本
+        print(msg.encode('ascii', errors='ignore').decode())
     TEST_RESULTS.append({"name": name, "passed": passed, "detail": detail})
 
 
@@ -517,7 +533,7 @@ def main() -> int:
     print("=" * 50)
 
     # 切换到项目根目录
-    project_root = Path(__file__).resolve().parent
+    project_root = Path(__file__).resolve().parent.parent
     os.chdir(project_root)
 
     test_method_existence()

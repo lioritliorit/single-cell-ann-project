@@ -20,6 +20,7 @@ from hnsw_search_service import HNSWSearchService
 # ---- 检索调试日志 ----
 _search_logger = logging.getLogger("search_debug")
 _search_logger.setLevel(logging.DEBUG)
+# 使用线程安全的FileHandler
 _search_log_handler = logging.FileHandler(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "docs", "search_debug.log"),
     encoding="utf-8",
@@ -29,24 +30,31 @@ _search_log_handler.setFormatter(logging.Formatter(
 ))
 _search_logger.addHandler(_search_log_handler)
 _search_logger.propagate = False
+# 日志锁，防止并发写入问题
+_log_lock = threading.Lock()
 
 
 def _log_search(mode: str, dataset_id: str, engine: str, elapsed: float,
                 k: int, result_count: int, filters: Dict[str, str],
                 filter_stats: Dict[str, Any]) -> None:
     """记录每次检索请求的关键参数，作为跨库检索调试日志。"""
-    _search_logger.debug(
-        json.dumps({
-            "mode": mode,
-            "dataset_id": dataset_id,
-            "engine": engine,
-            "elapsed_ms": elapsed,
-            "k": k,
-            "result_count": result_count,
-            "filters": filters,
-            "filter_stats": filter_stats,
-        }, ensure_ascii=False)
-    )
+    try:
+        with _log_lock:
+            _search_logger.debug(
+                json.dumps({
+                    "mode": mode,
+                    "dataset_id": dataset_id,
+                    "engine": engine,
+                    "elapsed_ms": elapsed,
+                    "k": k,
+                    "result_count": result_count,
+                    "filters": filters,
+                    "filter_stats": filter_stats,
+                }, ensure_ascii=False)
+            )
+    except Exception:
+        # 日志写入失败不影响主流程
+        pass
 
 
 def create_app() -> Flask:
@@ -671,17 +679,21 @@ def create_app() -> Flask:
         result["dataset"] = dataset_manager.get_active_dataset()
 
         # 写入跨库检索调试日志
-        os.makedirs(os.path.join(os.path.dirname(os.path.abspath(__file__)), "docs"), exist_ok=True)
-        _log_search(
-            mode=search_mode,
-            dataset_id=dataset_manager.get_active_dataset().get("id", "?"),
-            engine=engine,
-            elapsed=result.get("elapsed_ms", 0),
-            k=payload.get("k", 10),
-            result_count=result.get("result_count", 0),
-            filters=filters,
-            filter_stats=result.get("filter_stats", {}),
-        )
+        try:
+            os.makedirs(os.path.join(os.path.dirname(os.path.abspath(__file__)), "docs"), exist_ok=True)
+            _log_search(
+                mode=search_mode,
+                dataset_id=dataset_manager.get_active_dataset().get("id", "?"),
+                engine=engine,
+                elapsed=result.get("elapsed_ms", 0),
+                k=payload.get("k", 10),
+                result_count=result.get("result_count", 0),
+                filters=filters,
+                filter_stats=result.get("filter_stats", {}),
+            )
+        except Exception:
+            # 日志写入失败不影响主流程
+            pass
 
         return jsonify(result)
 

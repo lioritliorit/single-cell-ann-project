@@ -3,13 +3,15 @@ Concurrent API smoke/stress test for member 4 backend integration.
 
 Run after starting the Flask server:
     python app.py
-    python scripts/api_stress_test.py --url http://127.0.0.1:5000 --requests 100 --workers 8
+    python tests/api_stress_test.py --url http://127.0.0.1:5000 --requests 100 --workers 8
 """
 
 import argparse
 import csv
 import json
+import os
 import statistics
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -18,7 +20,11 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 
-def load_default_cell_id(metadata_path: str = "cleaned_cell_metadata.csv") -> str:
+def load_default_cell_id(metadata_path: str = None) -> str:
+    if metadata_path is None:
+        # 从项目根目录查找
+        project_root = Path(__file__).resolve().parent.parent
+        metadata_path = str(project_root / "cleaned_cell_metadata.csv")
     with open(metadata_path, encoding="utf-8-sig", newline="") as file_obj:
         first = next(csv.DictReader(file_obj))
     return first["cell_id"]
