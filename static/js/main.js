@@ -700,7 +700,7 @@ searchForm.addEventListener("submit", async (event) => {
             filterStats.style.display = "block";
         }
 
-        renderWarnings(data.warnings || []);
+        renderSearchMessages(data.warnings || [], data.filter_stats || {});
         renderResults(data.results || []);
         resultsContainer.style.display = "block";
         highlightQueryCell(data);
@@ -712,16 +712,32 @@ searchForm.addEventListener("submit", async (event) => {
     }
 });
 
-function renderWarnings(warnings) {
+function renderSearchMessages(warnings, filterStats) {
     const warningEl = $("search-warnings");
-    if (!warnings.length) {
+    const messages = [];
+
+    if (filterStats?.source_distribution && Object.keys(filterStats.source_distribution).length) {
+        const distributionText = Object.entries(filterStats.source_distribution)
+            .map(([name, count]) => `${name}: ${count}`)
+            .join("，");
+        messages.push(
+            `<div class="alert alert-info"><i class="fas fa-project-diagram"></i> 来源分布：${escapeHtml(distributionText)}</div>`
+        );
+    }
+
+    if (warnings.length) {
+        messages.push(...warnings.map((warning) =>
+            `<div class="alert alert-warning"><i class="fas fa-exclamation-circle"></i> ${escapeHtml(warning)}</div>`
+        ));
+    }
+
+    if (!messages.length) {
         warningEl.style.display = "none";
         warningEl.innerHTML = "";
         return;
     }
-    warningEl.innerHTML = warnings.map((warning) =>
-        `<div class="alert alert-warning"><i class="fas fa-exclamation-circle"></i> ${escapeHtml(warning)}</div>`
-    ).join("");
+
+    warningEl.innerHTML = messages.join("");
     warningEl.style.display = "block";
 }
 

@@ -657,15 +657,6 @@ def create_app() -> Flask:
                 filters=filters,
                 include_self=bool(payload.get("include_self", False)),
             )
-            # 跨库模式下额外标注来源分布
-            if search_mode == "cross_dataset":
-                source_counts: Dict[str, int] = {}
-                for r in result.get("results", []):
-                    ds = r.get("dataset_name", "unknown") or "unknown"
-                    source_counts[ds] = source_counts.get(ds, 0) + 1
-                result.setdefault("filter_stats", {})
-                result["filter_stats"]["source_distribution"] = source_counts
-                result["filter_stats"]["mode"] = "cross_dataset"
         else:
             result = service.search(
                 cell_id=payload.get("cell_id"),
@@ -675,6 +666,15 @@ def create_app() -> Flask:
                 include_self=bool(payload.get("include_self", False)),
                 filters=filters,
             )
+
+        if search_mode == "cross_dataset":
+            source_counts: Dict[str, int] = {}
+            for r in result.get("results", []):
+                ds = r.get("dataset_name", "unknown") or "unknown"
+                source_counts[ds] = source_counts.get(ds, 0) + 1
+            result.setdefault("filter_stats", {})
+            result["filter_stats"]["source_distribution"] = source_counts
+            result["filter_stats"]["mode"] = "cross_dataset"
 
         result["index_type"] = engine
         result["search_mode"] = search_mode
